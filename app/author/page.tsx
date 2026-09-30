@@ -626,10 +626,11 @@ export default function AuthorPage() {
                   </label>
                   <input
                     type="number"
-                    min={49}
-                    step={10}
-                    value={price}
+                    min={0}
+                    step="any"
+                    value={price === 0 ? '' : price}
                     onChange={(e) => setPrice(Number(e.target.value))}
+                    placeholder="ใส่ราคาได้ตามต้องการ เช่น 100, 250, 390"
                     className="w-full border border-slate-300 rounded-xl p-3 text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                     required
                   />
