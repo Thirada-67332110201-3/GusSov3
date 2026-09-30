@@ -43,6 +43,7 @@ type Profile = {
   name?: string
   username?: string
   role?: string
+  role_id?: number
   created_at: string
 }
 
@@ -451,11 +452,29 @@ export default function AdminDashboard() {
     alert(`อัปเดตสถานะคำสั่งซื้อ #${orderId} เป็น "${newStatus}" เรียบร้อยแล้ว!`)
   }
 
-  // ฟังก์ชันสลับบทบาทผู้ใช้ (Admin / Customer)
-  const handleToggleUserRole = (userId: string, currentRole?: string) => {
-    const newRole = currentRole === 'admin' ? 'customer' : 'admin'
-    setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u))
-    alert(`ปรับบทบาทของผู้ใช้เป็น "${newRole.toUpperCase()}" เรียบร้อยแล้ว!`)
+  // ฟังก์ชันปรับเปลี่ยนบทบาทผู้ใช้ (Admin / Author / Customer) โดยแอดมิน
+  const handleChangeUserRole = async (userId: string, newRoleId: number) => {
+    const roleNames: Record<number, string> = {
+      1: 'admin',
+      2: 'customer',
+      3: 'author'
+    }
+    const roleLabels: Record<number, string> = {
+      1: '🛡️ ผู้ดูแลระบบ (Admin)',
+      2: '👤 สมาชิกทั่วไป (Customer)',
+      3: '✍️ นักเขียน / ผู้แต่ง (Author)'
+    }
+
+    const newRoleStr = roleNames[newRoleId] || 'customer'
+    setUsers(users.map(u => u.id === userId ? { ...u, role: newRoleStr, role_id: newRoleId } : u))
+
+    try {
+      await supabase.from('users').update({ role_id: newRoleId }).eq('id', userId)
+    } catch (e) {
+      console.error('Update role error in Supabase:', e)
+    }
+
+    alert(`✅ ปรับบทบาทของผู้ใช้เป็น "${roleLabels[newRoleId]}" เรียบร้อยแล้ว!`)
   }
 
   // ส่งออกรายงานวิเคราะห์เป็นไฟล์ CSV สำหรับใส่เล่มรายงาน
@@ -1429,7 +1448,8 @@ export default function AdminDashboard() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {users.map((u) => {
-                    const isUserAdmin = u.email === 'admin@gusso.com' || u.role === 'admin'
+                    const currentRoleId = u.role_id || (u.email === 'admin@gusso.com' || u.role === 'admin' ? 1 : u.role === 'author' ? 3 : 2)
+                    const isSuperAdmin = u.email === 'admin@gusso.com'
                     return (
                       <tr key={u.id} className="hover:bg-gray-50 transition">
                         <td className="p-3.5 font-mono text-xs text-gray-400">{u.id.slice(0, 8)}...</td>
@@ -1437,22 +1457,33 @@ export default function AdminDashboard() {
                         <td className="p-3.5 text-gray-800">{u.email}</td>
                         <td className="p-3.5 text-xs text-gray-500">{new Date(u.created_at).toLocaleDateString('th-TH')}</td>
                         <td className="p-3.5">
-                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                            isUserAdmin ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-gray-100 text-gray-700'
-                          }`}>
-                            {isUserAdmin ? '🛡️ ผู้ดูแล (Admin)' : '👤 ลูกค้า (Customer)'}
-                          </span>
+                          {currentRoleId === 1 ? (
+                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                              🛡️ ผู้ดูแล (Admin)
+                            </span>
+                          ) : currentRoleId === 3 ? (
+                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                              ✍️ นักเขียน (Author)
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              👤 สมาชิกทั่วไป (Customer)
+                            </span>
+                          )}
                         </td>
                         <td className="p-3.5 text-center">
-                          {u.email === 'admin@gusso.com' ? (
-                            <span className="text-xs text-gray-400">ผู้ดูแลหลัก</span>
+                          {isSuperAdmin ? (
+                            <span className="text-xs text-gray-400 font-medium">ผู้ดูแลหลัก</span>
                           ) : (
-                            <button
-                              onClick={() => handleToggleUserRole(u.id, u.role)}
-                              className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl font-medium transition"
+                            <select
+                              value={currentRoleId}
+                              onChange={(e) => handleChangeUserRole(u.id, Number(e.target.value))}
+                              className="text-xs bg-white border border-gray-300 hover:border-indigo-500 text-gray-800 px-2.5 py-1.5 rounded-xl font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition cursor-pointer shadow-sm"
                             >
-                              สลับเป็น {u.role === 'admin' ? 'Customer' : 'Admin'}
-                            </button>
+                              <option value={2}>👤 สมาชิกทั่วไป (Customer)</option>
+                              <option value={3}>✍️ นักเขียน (Author)</option>
+                              <option value={1}>🛡️ แอดมิน (Admin)</option>
+                            </select>
                           )}
                         </td>
                       </tr>

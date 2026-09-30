@@ -32,12 +32,27 @@ export default function LoginPage() {
     setLoading(true)
 
     const cleanEmail = email.trim().toLowerCase()
-    const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
+    const { data: authData, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
 
     if (error) {
       alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message)
       setLoading(false)
     } else {
+      // ตรวจสอบและบันทึกผู้ใช้ลงใน public.users ถ้ายังไม่มี
+      if (authData?.user?.id) {
+        try {
+          const isSuperAdmin = cleanEmail === 'admin@gusso.com'
+          await supabase.from('users').upsert({
+            id: authData.user.id,
+            email: cleanEmail,
+            name: authData.user.user_metadata?.username || cleanEmail.split('@')[0],
+            role_id: isSuperAdmin ? 1 : 2
+          }, { onConflict: 'id', ignoreDuplicates: true })
+        } catch (err) {
+          console.warn('Sync user to public.users on login:', err)
+        }
+      }
+
       alert('เข้าสู่ระบบสำเร็จ!')
       if (cleanEmail === 'admin@gusso.com') {
         router.push('/admin')
@@ -47,7 +62,7 @@ export default function LoginPage() {
     }
   }
 
-  // จัดการสมัครสมาชิก
+  // จัดการสมัครสมาชิก (ค่าเริ่มต้น: สมาชิกทั่วไป Customer / role_id: 2)
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -77,7 +92,9 @@ export default function LoginPage() {
       options: {
         data: {
           username: cleanUsername,
-          full_name: cleanUsername
+          full_name: cleanUsername,
+          role: 'customer',
+          role_id: 2
         }
       }
     })
@@ -85,7 +102,21 @@ export default function LoginPage() {
     if (error) {
       alert('สมัครสมาชิกไม่สำเร็จ: ' + error.message)
     } else {
-      alert(`🎉 สมัครสมาชิกสำเร็จ ยินดีต้อนรับคุณ ${cleanUsername}! สามารถเข้าสู่ระบบได้ทันที`)
+      // บันทึกเข้าตาราง public.users กำหนดบทบาทเริ่มต้นเป็น Customer (role_id = 2)
+      if (signUpData?.user?.id) {
+        try {
+          await supabase.from('users').upsert({
+            id: signUpData.user.id,
+            email: cleanEmail,
+            name: cleanUsername,
+            role_id: 2
+          })
+        } catch (err) {
+          console.warn('Save to public.users on signup:', err)
+        }
+      }
+
+      alert(`🎉 สมัครสมาชิกสำเร็จ ยินดีต้อนรับคุณ ${cleanUsername}!\nสถานะเริ่มต้นของคุณคือ: สมาชิกทั่วไป (Customer)\nสามารถเข้าสู่ระบบได้ทันที`)
       setPassword(signupPassword)
       setMode('login')
     }

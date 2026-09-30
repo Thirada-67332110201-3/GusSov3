@@ -15,6 +15,7 @@ export default function ProfilePage() {
   const [email, setEmail] = useState<string>('')
   const [username, setUsername] = useState<string>('')
   const [createdAt, setCreatedAt] = useState<string>('')
+  const [roleId, setRoleId] = useState<number>(2)
 
   // เปลี่ยนรหัสผ่าน
   const [newPassword, setNewPassword] = useState('')
@@ -41,6 +42,22 @@ export default function ProfilePage() {
 
     const currentName = u.user_metadata?.username || u.user_metadata?.full_name || u.email?.split('@')[0] || ''
     setUsername(currentName)
+
+    // ตรวจสอบบทบาทจากตาราง public.users
+    let currentRoleId = 2
+    if (u.email === 'admin@gusso.com') {
+      currentRoleId = 1
+    } else {
+      try {
+        const { data: dbUser } = await supabase.from('users').select('role_id').eq('id', u.id).single()
+        if (dbUser?.role_id) {
+          currentRoleId = dbUser.role_id
+        }
+      } catch (err) {
+        console.warn('Fetch role from users table:', err)
+      }
+    }
+    setRoleId(currentRoleId)
 
     setLoading(false)
   }, [supabase])
@@ -174,8 +191,18 @@ export default function ProfilePage() {
               แก้ไขข้อมูลพื้นฐานของสมาชิก
             </h1>
           </div>
-          <span className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full font-semibold border border-indigo-100">
-            {email === 'admin@gusso.com' ? '🛡️ ผู้ดูแลระบบ (Admin)' : '👤 สมาชิกทั่วไป'}
+          <span className={`text-xs px-3 py-1 rounded-full font-semibold border ${
+            roleId === 1 || email === 'admin@gusso.com'
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : roleId === 3
+              ? 'bg-purple-50 text-purple-800 border-purple-200'
+              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+          }`}>
+            {roleId === 1 || email === 'admin@gusso.com'
+              ? '🛡️ ผู้ดูแลระบบ (Admin)'
+              : roleId === 3
+              ? '✍️ นักเขียน / ผู้แต่ง (Author)'
+              : '👤 สมาชิกทั่วไป (Customer)'}
           </span>
         </div>
       </header>
@@ -220,6 +247,28 @@ export default function ProfilePage() {
                   className="w-full border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  สถานะบทบาทในระบบ (Role)
+                </label>
+                <div className={`p-3 rounded-xl border text-sm font-semibold flex items-center gap-2 ${
+                  roleId === 1 || email === 'admin@gusso.com'
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : roleId === 3
+                    ? 'bg-purple-50 border-purple-200 text-purple-800'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                }`}>
+                  {roleId === 1 || email === 'admin@gusso.com'
+                    ? '🛡️ ผู้ดูแลระบบ (Admin)'
+                    : roleId === 3
+                    ? '✍️ นักเขียน / ผู้แต่ง (Author)'
+                    : '👤 สมาชิกทั่วไป (Customer)'}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  * หากต้องการปรับบทบาทเป็นนักเขียนหรือผู้ดูแล สามารถติดต่อผู้ดูแลระบบเพื่อปรับสิทธิ์ได้
+                </p>
               </div>
 
               <div>
