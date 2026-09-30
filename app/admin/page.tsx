@@ -8,8 +8,9 @@ import {
   BookOpen, Users, ShoppingBag, Tag, BarChart3, 
   ArrowLeft, Plus, Search, CheckCircle, XCircle, Clock, 
   Download, RefreshCw, Shield, Edit, TrendingUp, Calendar,
-  ChevronRight, Filter, AlertCircle, DollarSign, Layers
+  ChevronRight, Filter, AlertCircle, DollarSign, Layers, Star
 } from 'lucide-react'
+import { UNIQUE_EBOOKS_METADATA } from '@/lib/books-data'
 
 type Ebook = {
   ebook_id: number
@@ -25,6 +26,8 @@ type Ebook = {
   approval_status?: 'pending' | 'approved' | 'rejected'
   submitted_by?: string
   rejection_reason?: string
+  rating?: number
+  total_reviews?: number
 }
 
 type Category = {
@@ -200,14 +203,24 @@ export default function AdminDashboard() {
       }
       const authorMap = new Map((authorData || []).map(a => [a.author_id, a.author_name]))
 
-      // 1.1 ดึงข้อมูลหนังสือ พร้อมสถานะการอนุมัติ
-      const { data: ebookData } = await supabase.from('ebooks').select('*').order('ebook_id', { ascending: false })
+      // 1.1 ดึงข้อมูลหนังสือ พร้อมสถานะการอนุมัติและคะแนนรีวิว
+      const { data: ebookData } = await supabase.from('ebooks').select('*').order('ebook_id', { ascending: true })
       if (ebookData && ebookData.length > 0) {
-        const enrichedEbooks: Ebook[] = ebookData.map(b => ({
-          ...b,
-          author: authorMap.get(b.author_id) || b.author || 'ไม่ระบุผู้แต่ง',
-          approval_status: b.approval_status || 'approved'
-        }))
+        const enrichedEbooks: Ebook[] = ebookData.map(b => {
+          const meta = UNIQUE_EBOOKS_METADATA[b.ebook_id]
+          return {
+            ...b,
+            title: meta?.title || b.title,
+            author: authorMap.get(b.author_id) || meta?.author || b.author || 'ไม่ระบุผู้แต่ง',
+            price: Number(b.price || meta?.price || 290),
+            description: meta?.description || b.description,
+            cover_image: meta?.cover_image || b.cover_image,
+            category_id: meta?.category_id || b.category_id || 1,
+            approval_status: b.approval_status || 'approved',
+            rating: Number(b.rating || meta?.rating || 5.0),
+            total_reviews: Number(b.total_reviews || meta?.total_reviews || 1)
+          }
+        })
         setEbooks(enrichedEbooks)
       }
 
@@ -1544,8 +1557,10 @@ export default function AdminDashboard() {
                   <thead>
                     <tr className="bg-gray-100 text-gray-700 font-bold">
                       <th className="p-3.5 rounded-l-xl">รหัส</th>
-                      <th className="p-3.5">ชื่อหนังสือ</th>
+                      <th className="p-3.5">หนังสือ</th>
+                      <th className="p-3.5">ผู้แต่ง</th>
                       <th className="p-3.5">ราคา</th>
+                      <th className="p-3.5 text-center">คะแนนดาว</th>
                       <th className="p-3.5">สถานะ</th>
                       <th className="p-3.5 text-center rounded-r-xl">จัดการข้อมูล</th>
                     </tr>
@@ -1554,8 +1569,34 @@ export default function AdminDashboard() {
                     {ebooks.map((b) => (
                       <tr key={b.ebook_id} className="hover:bg-gray-50 transition">
                         <td className="p-3.5 font-mono text-xs font-bold text-gray-500">#{b.ebook_id}</td>
-                        <td className="p-3.5 font-semibold text-gray-800">{b.title}</td>
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-14 bg-gray-100 rounded-md overflow-hidden shrink-0 shadow-xs">
+                              {b.cover_image ? (
+                                <img src={b.cover_image} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                  <BookOpen className="w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-800 text-xs sm:text-sm line-clamp-1">{b.title}</p>
+                              <span className="text-[11px] text-gray-400 font-mono">ID: {b.ebook_id}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3.5 text-xs text-indigo-600 font-medium whitespace-nowrap">
+                          ✍️ {b.author || 'ไม่ระบุผู้แต่ง'}
+                        </td>
                         <td className="p-3.5 font-bold text-emerald-600">฿{b.price}</td>
+                        <td className="p-3.5 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                            <span className="text-xs font-bold text-amber-900">{Number(b.rating || 5.0).toFixed(1)}</span>
+                            <span className="text-[10px] text-amber-600">({b.total_reviews || 1})</span>
+                          </div>
+                        </td>
                         <td className="p-3.5">
                           <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${b.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                             {b.is_active ? 'เปิดจำหน่าย' : 'ปิดการขาย'}
