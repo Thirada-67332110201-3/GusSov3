@@ -20,6 +20,7 @@ function DownloadContent() {
 
   const [loading, setLoading] = useState(true)
   const [authorized, setAuthorized] = useState(false)
+  const [accessDenialReason, setAccessDenialReason] = useState<'pending' | 'cancelled' | 'not_found' | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [ebook, setEbook] = useState<Ebook | null>(null)
 
@@ -50,17 +51,59 @@ function DownloadContent() {
 
     if (email === 'admin@gusso.com') {
       setAuthorized(true)
+      setAccessDenialReason(null)
     } else {
+      let hasConfirmed = false
+      let hasPending = false
+      let hasCancelled = false
+
+      // 1. ตรวจสอบตาราง orders และ order_items ว่าสถานะเป็น 'ยืนยันแล้ว' หรือ 'รอชำระ'
+      try {
+        const { data: userOrders } = await supabase
+          .from('orders')
+          .select(`
+            order_id,
+            status,
+            customer_email,
+            order_items (
+              ebook_id
+            )
+          `)
+          .ilike('customer_email', email)
+
+        if (userOrders && userOrders.length > 0) {
+          for (const ord of userOrders) {
+            const hasThisBook = (ord.order_items || []).some((item: any) => String(item.ebook_id) === String(ebookId))
+            if (hasThisBook) {
+              if (ord.status === 'ยืนยันแล้ว') hasConfirmed = true
+              else if (ord.status === 'รอชำระ') hasPending = true
+              else if (ord.status === 'ยกเลิก') hasCancelled = true
+            }
+          }
+        }
+      } catch (e) {
+        // fallback
+      }
+
+      // 2. ตรวจสอบจาก purchases
       const { data: purchaseData } = await supabase
         .from('purchases')
         .select('*')
         .ilike('user_email', email)
         .eq('ebook_id', ebookId)
 
-      if (purchaseData && purchaseData.length > 0) {
+      if (hasConfirmed || (purchaseData && purchaseData.length > 0)) {
         setAuthorized(true)
+        setAccessDenialReason(null)
+      } else if (hasPending) {
+        setAuthorized(false)
+        setAccessDenialReason('pending')
+      } else if (hasCancelled) {
+        setAuthorized(false)
+        setAccessDenialReason('cancelled')
       } else {
         setAuthorized(false)
+        setAccessDenialReason('not_found')
       }
     }
 
@@ -180,13 +223,19 @@ function DownloadContent() {
           <AlertTriangle className="w-12 h-12 stroke-[2.5]" />
         </div>
 
-        {/* ข้อความหลักตามที่ต้องการ */}
-        <span className="inline-block bg-red-100 text-red-800 text-xs font-semibold px-3 py-1 rounded-full mb-3">
-          ✕ ตรวจสอบสิทธิ์ไม่ผ่าน
+        {/* ข้อความหลักตามสถานะ */}
+        <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full mb-3 ${
+          accessDenialReason === 'pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+        }`}>
+          {accessDenialReason === 'pending' ? '🔒 คำสั่งซื้อยังไม่ยืนยัน' :
+           accessDenialReason === 'cancelled' ? '❌ คำสั่งซื้อถูกยกเลิก' :
+           '✕ ตรวจสอบสิทธิ์ไม่ผ่าน'}
         </span>
 
         <h1 className="text-2xl sm:text-3xl font-extrabold text-red-700 mb-3">
-          กรุณาใส่เมล์ที่ถูกต้องก่อนการดาวน์โหลด
+          {accessDenialReason === 'pending' ? 'คำสั่งซื้อยังไม่ยืนยัน ไม่สามารถดาวน์โหลดได้' :
+           accessDenialReason === 'cancelled' ? 'คำสั่งซื้อถูกยกเลิกแล้ว' :
+           'กรุณาใส่เมล์ที่ถูกต้องก่อนการดาวน์โหลด'}
         </h1>
 
         {userEmail ? (
@@ -198,7 +247,13 @@ function DownloadContent() {
               {userEmail}
             </p>
             <p className="text-xs text-red-700 leading-relaxed">
-              ❌ ไม่พบประวัติการสั่งซื้อหนังสือเล่มนี้ด้วยอีเมลนี้ กรุณาสลับไปเข้าสู่ระบบด้วยอีเมลที่คุณใช้ตอนสั่งซื้อ
+              {accessDenialReason === 'pending' ? (
+                <span>⚠️ <strong>คำสั่งซื้อยังไม่ยืนยัน (สถานะ: รอชำระ):</strong> ตามข้อกำหนดระบบ คำสั่งซื้อที่ยังไม่ยืนยันจะไม่สามารถเปิดลิงก์ดาวน์โหลดได้ กรุณาชำระเงินและรอผู้ดูแลร้าน (Admin) ตรวจสอบและกดยืนยันคำสั่งซื้อเพื่อปลดล็อคสิทธิ์ดาวน์โหลด</span>
+              ) : accessDenialReason === 'cancelled' ? (
+                <span>❌ <strong>คำสั่งซื้อถูกยกเลิก:</strong> รายการคำสั่งซื้อหนังสือเล่มนี้ถูกยกเลิกแล้ว จึงไม่สามารถเข้าถึงไฟล์ดาวน์โหลดได้</span>
+              ) : (
+                <span>❌ ไม่พบประวัติการสั่งซื้อหนังสือเล่มนี้ด้วยอีเมลนี้ กรุณาสลับไปเข้าสู่ระบบด้วยอีเมลที่คุณใช้ตอนสั่งซื้อ</span>
+              )}
             </p>
           </div>
         ) : (

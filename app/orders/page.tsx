@@ -4,16 +4,17 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Download, ShoppingBag, CheckCircle, BookOpen } from 'lucide-react'
+import { ArrowLeft, Download, ShoppingBag, CheckCircle, BookOpen, Lock, Clock } from 'lucide-react'
 
 type PurchaseItem = {
-  purchase_id: number
+  purchase_id: number | string
   ebook_id: number
   purchased_at: string
   title?: string
   price?: number
   cover_image?: string
   author?: string
+  status: 'ยืนยันแล้ว' | 'รอชำระ' | 'ยกเลิก'
 }
 
 export default function OrdersPage() {
@@ -37,40 +38,89 @@ export default function OrdersPage() {
     setUserEmail(email)
 
     try {
-      // 1. ดึงข้อมูลการซื้อจาก purchases
-      const { data: purchaseData, error: pError } = await supabase
+      // 1. ดึงข้อมูลคำสั่งซื้อจาก orders พร้อม order_items
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select(`
+          order_id,
+          total_amount,
+          status,
+          created_at,
+          order_items (
+            ebook_id,
+            unit_price
+          )
+        `)
+        .ilike('customer_email', email)
+        .order('created_at', { ascending: false })
+
+      // 2. ดึงข้อมูลจาก purchases (ที่เคยซื้อสำเร็จ)
+      const { data: purchaseData } = await supabase
         .from('purchases')
         .select('*')
         .ilike('user_email', email)
         .order('purchase_id', { ascending: false })
 
-      if (purchaseData && purchaseData.length > 0) {
-        // 2. ดึงข้อมูลหนังสือที่ตรงกับ ebook_id
-        const ebookIds = Array.from(new Set(purchaseData.map(p => p.ebook_id)))
-        const { data: booksData } = await supabase
-          .from('ebooks')
-          .select('*')
-          .in('ebook_id', ebookIds)
+      // รวบรวม ebook_id ทั้งหมดเพื่อดึงรายละเอียดหนังสือ
+      const allEbookIds = new Set<number>()
+      ;(ordersData || []).forEach(o => {
+        (o.order_items || []).forEach((item: any) => allEbookIds.add(Number(item.ebook_id)))
+      })
+      ;(purchaseData || []).forEach(p => allEbookIds.add(Number(p.ebook_id)))
 
-        const bookMap = new Map((booksData || []).map(b => [b.ebook_id, b]))
+      const { data: booksData } = await supabase
+        .from('ebooks')
+        .select('*')
+        .in('ebook_id', Array.from(allEbookIds))
 
-        const merged: PurchaseItem[] = purchaseData.map(p => {
-          const book = bookMap.get(p.ebook_id)
-          return {
-            purchase_id: p.purchase_id,
-            ebook_id: p.ebook_id,
-            purchased_at: p.purchased_at || new Date().toISOString(),
-            title: book?.title || `E-Book รหัส #${p.ebook_id}`,
-            price: book?.price || 290,
-            cover_image: book?.cover_image,
-            author: book?.author || 'ทีมวิชาการ GusSo'
+      const bookMap = new Map((booksData || []).map(b => [b.ebook_id, b]))
+
+      const mergedList: PurchaseItem[] = []
+      const processedKeys = new Set<string>()
+
+      // นำเข้ารายการจาก orders ก่อน (เพื่อรักษาสถานะ 'ยืนยันแล้ว', 'รอชำระ', 'ยกเลิก')
+      if (ordersData && ordersData.length > 0) {
+        for (const ord of ordersData) {
+          const ordStatus = (ord.status as any) || 'ยืนยันแล้ว'
+          for (const it of (ord.order_items || [])) {
+            const b = bookMap.get(it.ebook_id)
+            const key = `${ord.order_id}-${it.ebook_id}`
+            processedKeys.add(key)
+            mergedList.push({
+              purchase_id: ord.order_id,
+              ebook_id: it.ebook_id,
+              purchased_at: ord.created_at,
+              title: b?.title || `E-Book รหัส #${it.ebook_id}`,
+              price: it.unit_price || b?.price || 290,
+              cover_image: b?.cover_image,
+              author: b?.author || 'ทีมวิชาการ GusSo',
+              status: ordStatus
+            })
           }
-        })
-
-        setPurchases(merged)
-      } else {
-        setPurchases([])
+        }
       }
+
+      // นำเข้ารายการจาก purchases (ที่ยังไม่ซ้ำ)
+      if (purchaseData && purchaseData.length > 0) {
+        for (const p of purchaseData) {
+          const hasAlready = mergedList.some(m => m.ebook_id === p.ebook_id && m.status === 'ยืนยันแล้ว')
+          if (!hasAlready) {
+            const b = bookMap.get(p.ebook_id)
+            mergedList.push({
+              purchase_id: p.purchase_id,
+              ebook_id: p.ebook_id,
+              purchased_at: p.purchased_at || new Date().toISOString(),
+              title: b?.title || `E-Book รหัส #${p.ebook_id}`,
+              price: b?.price || 290,
+              cover_image: b?.cover_image,
+              author: b?.author || 'ทีมวิชาการ GusSo',
+              status: 'ยืนยันแล้ว'
+            })
+          }
+        }
+      }
+
+      setPurchases(mergedList)
     } catch (err) {
       console.error(err)
     } finally {
@@ -192,9 +242,24 @@ export default function OrdersPage() {
                       </div>
                     )}
                     <div>
-                      <span className="text-[11px] font-mono text-gray-400 block mb-1">
-                        รหัสการซื้อ #{item.purchase_id} • วันที่ {new Date(item.purchased_at).toLocaleDateString('th-TH')}
-                      </span>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[11px] font-mono text-gray-400">
+                          รหัสการซื้อ #{item.purchase_id} • วันที่ {new Date(item.purchased_at).toLocaleDateString('th-TH')}
+                        </span>
+                        {item.status === 'ยืนยันแล้ว' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" /> ยืนยันแล้ว
+                          </span>
+                        ) : item.status === 'รอชำระ' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                            <Clock className="w-3 h-3 text-amber-600" /> รอชำระเงิน
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                            ✕ ยกเลิก
+                          </span>
+                        )}
+                      </div>
                       <h3 className="font-bold text-gray-900 text-base mb-1">
                         {item.title}
                       </h3>
@@ -208,13 +273,34 @@ export default function OrdersPage() {
                     <span className="text-lg font-extrabold text-emerald-600">
                       ฿{Number(item.price).toFixed(2)}
                     </span>
-                    <Link
-                      href={`/download?ebook_id=${item.ebook_id}`}
-                      className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition hover:scale-105 active:scale-95"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      ดาวน์โหลด E-Book
-                    </Link>
+                    {item.status === 'ยืนยันแล้ว' ? (
+                      <Link
+                        href={`/download?ebook_id=${item.ebook_id}`}
+                        className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition hover:scale-105 active:scale-95"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        ดาวน์โหลด E-Book
+                      </Link>
+                    ) : item.status === 'รอชำระ' ? (
+                      <div className="text-right">
+                        <button
+                          disabled
+                          className="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 text-gray-500 px-3.5 py-2 rounded-xl text-xs font-bold cursor-not-allowed shadow-none"
+                          title="คำสั่งซื้อที่ยังไม่ยืนยันไม่สามารถเปิดลิงก์ดาวน์โหลดได้"
+                        >
+                          <Lock className="w-3.5 h-3.5 text-amber-500" />
+                          <span>🔒 รอแอดมินยืนยัน (ล็อค)</span>
+                        </button>
+                        <span className="block text-[10px] text-amber-600 mt-1">ยังไม่สามารถดาวน์โหลดได้</span>
+                      </div>
+                    ) : (
+                      <button
+                        disabled
+                        className="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 text-gray-400 px-3.5 py-2 rounded-xl text-xs font-bold cursor-not-allowed shadow-none"
+                      >
+                        <span>🚫 ยกเลิกคำสั่งซื้อ</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
