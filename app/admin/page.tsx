@@ -8,9 +8,11 @@ import {
   BookOpen, Users, ShoppingBag, Tag, BarChart3, 
   ArrowLeft, Plus, Search, CheckCircle, XCircle, Clock, 
   Download, RefreshCw, Shield, Edit, TrendingUp, Calendar,
-  ChevronRight, Filter, AlertCircle, DollarSign, Layers, Star
+  ChevronRight, Filter, AlertCircle, DollarSign, Layers, Star,
+  Flame, Sparkles
 } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA } from '@/lib/books-data'
+import { getWeeklyPeriodInfo, getBookPromotionPricing, calculateDiscountPrice, WEEKLY_CAMPAIGNS, WeeklyPromotionCampaign } from '@/lib/promotions'
 
 type Ebook = {
   ebook_id: number
@@ -127,9 +129,29 @@ export default function AdminDashboard() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [activeTab, setActiveTab] = useState<'ebooks' | 'categories' | 'orders' | 'users' | 'reports' | 'approvals' | 'revenue'>('reports')
+  const [activeTab, setActiveTab] = useState<'ebooks' | 'categories' | 'orders' | 'users' | 'reports' | 'approvals' | 'revenue' | 'promotions'>('reports')
   const [approvalFilter, setApprovalFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
   const [authors, setAuthors] = useState<{ author_id: number, author_name: string }[]>([])
+
+  // ระบบจัดการโปรโมชั่นประจำสัปดาห์ (Weekly Promotions)
+  const [weeklyInfo, setWeeklyInfo] = useState(() => getWeeklyPeriodInfo())
+  const [isPromoActive, setIsPromoActive] = useState<boolean>(true)
+  const [previewCampaignIndex, setPreviewCampaignIndex] = useState<number>(3)
+  const [useAutoWeeklyRotation, setUseAutoWeeklyRotation] = useState<boolean>(true)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('gusso_weekly_promo_enabled')
+      if (saved !== null) {
+        setIsPromoActive(saved === 'true')
+      }
+    } catch (e) {
+      // ignore
+    }
+    const curInfo = getWeeklyPeriodInfo(new Date())
+    setWeeklyInfo(curInfo)
+    setPreviewCampaignIndex(curInfo.campaignIndex)
+  }, [])
 
   // ข้อมูลในระบบ
   const [ebooks, setEbooks] = useState<Ebook[]>([])
@@ -977,6 +999,19 @@ export default function AdminDashboard() {
           >
             <DollarSign className="w-4 h-4" />
             💰 ส่วนแบ่งรายได้ 60/40
+          </button>
+
+          <button
+            onClick={() => setActiveTab('promotions')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition whitespace-nowrap ${
+              activeTab === 'promotions' ? 'bg-amber-600 text-white shadow-md shadow-amber-100' : 'bg-white text-gray-600 border hover:bg-gray-50'
+            }`}
+          >
+            <Flame className="w-4 h-4 text-orange-500 fill-orange-500" />
+            🏷️ โปรโมชั่นรายอาทิตย์
+            <span className="bg-amber-100 text-amber-900 text-[10px] px-2 py-0.5 rounded-full font-bold">
+              Week {weeklyInfo.weekNumber}
+            </span>
           </button>
         </div>
 
@@ -2216,6 +2251,223 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                   • อัตราการจัดสรร: ผู้แต่ง 60% และระบบหน้าร้าน 40% ต่อ 1 หน่วยการสั่งซื้อที่สำเร็จ (Confirmed Orders)
                 </p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* แท็บที่ 8: จัดการโปรโมชั่นเปลี่ยนรายอาทิตย์ (Weekly Promotions) */}
+        {/* ======================================================== */}
+        {activeTab === 'promotions' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <span className="p-1.5 bg-amber-100 text-amber-700 rounded-lg text-lg">🔥</span>
+                    จัดการระบบโปรโมชั่นเปลี่ยนรายอาทิตย์ (Weekly Promotions)
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    โปรโมชั่นจะหมุนเวียนสับเปลี่ยนอัตโนมัติทุกวันอาทิตย์เที่ยงคืน พร้อมกฎเหล็กห้ามราคาลดจนติดลบหรือ 0 บาท
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      const nextState = !isPromoActive
+                      setIsPromoActive(nextState)
+                      localStorage.setItem('gusso_weekly_promo_enabled', String(nextState))
+                      alert(`สถานะโปรโมชั่นรายอาทิตย์: ${nextState ? '✅ เปิดใช้งานแล้ว' : '⏸️ ปิดใช้งานชั่วคราว'}`)
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer ${
+                      isPromoActive 
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200' 
+                        : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                    }`}
+                  >
+                    {isPromoActive ? '✅ เปิดโปรโมชั่นอยู่ (Active)' : '⏸️ ปิดโปรโมชั่นชั่วคราว'}
+                  </button>
+                </div>
+              </div>
+
+              {/* กฎเหล็กความปลอดภัย (Safety Constraint Box) */}
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200/80 text-xs text-amber-900 space-y-2">
+                <div className="flex items-center gap-2 font-black text-amber-950 text-sm">
+                  <Shield className="w-5 h-5 text-amber-600" />
+                  🛡️ กฎเหล็กของระบบ (System Safety Enforcement):
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-amber-800 leading-relaxed font-medium">
+                  <li><strong>ห้ามลดจนติดลบ หรือ ราคา 0 บาท เด็ดขาด:</strong> ทุกการคำนวณส่วนลดจะถูกตรวจสอบผ่านฟังก์ชัน <code className="bg-white/80 px-1 py-0.5 rounded border border-amber-300 text-amber-950 font-mono">calculateDiscountPrice</code> เสมอ</li>
+                  <li><strong>ระบบ Floor Price:</strong> กำหนดราคาขายสุทธิขั้นต่ำอย่างน้อย 9 บาท (และไม่ต่ำกว่า 1 บาท) ป้องกันไม่ให้ราคากลายเป็น 0 บาทโดยเด็ดขาด</li>
+                  <li><strong>จำกัดเพดานส่วนลดสูงสุด:</strong> บังคับเพดานส่วนลดไม่เกิน 85% แม้ว่าจะใส่ตัวเลข 100% ระบบก็จะปรับลงมาให้อยู่ในเกณฑ์ปลอดภัยอัตโนมัติ</li>
+                  <li><strong>เปลี่ยนโปรโมชั่นรายอาทิตย์:</strong> อิงตามสัปดาห์ของปี (ISO Week {weeklyInfo.weekNumber}) และรีเซ็ตแคมเปญใหม่ทุกเที่ยงคืนวันอาทิตย์</li>
+                </ul>
+              </div>
+
+              {/* แคมเปญสัปดาห์ปัจจุบัน */}
+              {(() => {
+                const activeCampaign = useAutoWeeklyRotation 
+                  ? weeklyInfo.activeCampaign 
+                  : WEEKLY_CAMPAIGNS[previewCampaignIndex] || weeklyInfo.activeCampaign
+
+                return (
+                  <div className="space-y-6">
+                    <div className="rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 relative overflow-hidden shadow-lg border border-indigo-500/20">
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="bg-amber-400 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full">
+                              สัปดาห์ที่ {weeklyInfo.weekNumber} ของปี {weeklyInfo.year}
+                            </span>
+                            <span className="text-xs text-indigo-300">
+                              {weeklyInfo.startOfWeek.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} - {weeklyInfo.endOfWeek.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          </div>
+                          <h3 className="text-2xl font-black text-white">{activeCampaign.title}</h3>
+                          <p className="text-sm text-slate-300 mt-1">{activeCampaign.description}</p>
+                        </div>
+
+                        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 text-center shrink-0">
+                          <span className="text-[11px] text-slate-300 block font-medium">ส่วนลดประจำสัปดาห์</span>
+                          <span className="text-2xl font-black text-amber-400 block mt-0.5">
+                            -{activeCampaign.categoryDiscountPercent}% / -{activeCampaign.featuredDiscountPercent}%
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                            {useAutoWeeklyRotation ? '🔄 หมุนเวียนอัตโนมัติ' : '⚙️ โหมดทดสอบแอดมิน'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* สวิตช์เลือกดูแคมเปญทั้ง 4 สัปดาห์ */}
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-bold text-gray-800">
+                          รอบการหมุนเวียนโปรโมชั่นรายอาทิตย์ (4 สัปดาห์วนซ้ำอัตโนมัติ):
+                        </h4>
+                        <button
+                          onClick={() => {
+                            setUseAutoWeeklyRotation(true)
+                            setPreviewCampaignIndex(weeklyInfo.campaignIndex)
+                          }}
+                          className={`text-xs px-3 py-1 rounded-xl font-bold transition cursor-pointer ${
+                            useAutoWeeklyRotation 
+                              ? 'bg-indigo-600 text-white' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          🔄 ใช้สัปดาห์จริงตามปฏิทิน
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {WEEKLY_CAMPAIGNS.map((camp, idx) => {
+                          const isCurrentCalendarWeek = idx === weeklyInfo.campaignIndex
+                          const isSelected = activeCampaign.id === camp.id
+
+                          return (
+                            <div
+                              key={camp.id}
+                              onClick={() => {
+                                setUseAutoWeeklyRotation(false)
+                                setPreviewCampaignIndex(idx)
+                              }}
+                              className={`p-4 rounded-2xl border transition cursor-pointer relative ${
+                                isSelected 
+                                  ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-200 shadow-sm' 
+                                  : 'border-gray-200 bg-white hover:border-gray-300'
+                              }`}
+                            >
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-gray-500">สัปดาห์รอบที่ {idx + 1}</span>
+                                {isCurrentCalendarWeek && (
+                                  <span className="bg-amber-100 text-amber-900 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                                    สัปดาห์นี้
+                                  </span>
+                                )}
+                              </div>
+                              <h5 className="font-bold text-gray-900 text-xs sm:text-sm line-clamp-1">{camp.title}</h5>
+                              <p className="text-[11px] text-gray-500 mt-1 line-clamp-2">{camp.description}</p>
+                              <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-gray-100">
+                                <span className="font-bold text-emerald-600">ลด {camp.categoryDiscountPercent}%</span>
+                                <span className="text-[10px] text-indigo-600 font-semibold">เล่มเด่น -{camp.featuredDiscountPercent}%</span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* ตารางแสดงหนังสือและราคาหลังลดตามโปรโมชั่น */}
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
+                        <span>📚</span> ตรวจสอบราคาหนังสือภายใต้โปรโมชั่นนี้ (การันตีไม่มี 0 บาท และไม่ติดลบ):
+                      </h4>
+
+                      <div className="border border-gray-200 rounded-2xl overflow-hidden">
+                        <table className="w-full text-left text-xs sm:text-sm">
+                          <thead>
+                            <tr className="bg-gray-100 text-gray-700 font-bold border-b border-gray-200">
+                              <th className="p-3.5">รหัส</th>
+                              <th className="p-3.5">ชื่อหนังสือ</th>
+                              <th className="p-3.5 text-right">ราคาปกติ</th>
+                              <th className="p-3.5 text-center">ส่วนลดสัปดาห์นี้</th>
+                              <th className="p-3.5 text-right">ราคาสุทธิ (ห้าม 0 บาท)</th>
+                              <th className="p-3.5 text-right text-emerald-700">ประหยัด</th>
+                              <th className="p-3.5 text-center">การการันตี</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {ebooks.map((b) => {
+                              const pricing = getBookPromotionPricing(b, activeCampaign, isPromoActive)
+                              return (
+                                <tr key={b.ebook_id} className="hover:bg-gray-50 transition">
+                                  <td className="p-3.5 font-mono text-gray-500 font-bold">#{b.ebook_id}</td>
+                                  <td className="p-3.5 font-medium text-gray-800">
+                                    <div className="flex items-center gap-2">
+                                      <span className="line-clamp-1">{b.title}</span>
+                                      {pricing.isFeatured && (
+                                        <span className="shrink-0 bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                          เล่มเด่น
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="p-3.5 text-right text-gray-400 font-medium">
+                                    ฿{Number(b.price).toFixed(2)}
+                                  </td>
+                                  <td className="p-3.5 text-center">
+                                    {pricing.isDiscounted ? (
+                                      <span className="bg-amber-100 text-amber-800 font-black px-2 py-0.5 rounded-full text-xs">
+                                        -{pricing.discountPercent}%
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400 text-xs">-</span>
+                                    )}
+                                  </td>
+                                  <td className="p-3.5 text-right font-black text-rose-600 text-sm">
+                                    ฿{Number(pricing.finalPrice).toFixed(2)}
+                                  </td>
+                                  <td className="p-3.5 text-right text-emerald-700 font-bold">
+                                    {pricing.discountAmount > 0 ? `฿${pricing.discountAmount.toFixed(2)}` : '-'}
+                                  </td>
+                                  <td className="p-3.5 text-center">
+                                    <span className="bg-emerald-100 text-emerald-800 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center justify-center gap-1 mx-auto w-fit">
+                                      <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                      ปลอดภัย (&gt; 0 บ.)
+                                    </span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
         )}

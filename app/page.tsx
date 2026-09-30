@@ -5,8 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import emailjs from '@emailjs/browser'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare, Clock } from 'lucide-react'
+import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare, Clock, Flame, Sparkles, Tag } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA, BookReview } from '@/lib/books-data'
+import { getWeeklyPeriodInfo, getBookPromotionPricing, WeeklyPromotionCampaign } from '@/lib/promotions'
 
 type Ebook = {
   ebook_id: number
@@ -29,7 +30,11 @@ type Category = {
   category_name: string
 }
 
-type CartItem = Ebook & { quantity: number }
+type CartItem = Ebook & {
+  quantity: number
+  original_price?: number
+  discount_amount?: number
+}
 
 export default function Home() {
   const supabase = createClient()
@@ -86,6 +91,17 @@ export default function Home() {
   const [reviewComment, setReviewComment] = useState<string>('')
   const [submittingReview, setSubmittingReview] = useState<boolean>(false)
   const [reviewSuccessMsg, setReviewSuccessMsg] = useState<string>('')
+
+  // ระบบโปรโมชั่นเปลี่ยนรายอาทิตย์ (Weekly Promotions)
+  const [weeklyInfo, setWeeklyInfo] = useState(() => getWeeklyPeriodInfo())
+  const [isPromotionActive, setIsPromotionActive] = useState<boolean>(true)
+  const [countdown, setCountdown] = useState<{ days: number; hours: number; minutes: number; seconds: number }>({
+    days: 0,
+    hours: 0,
+    minutes: 0,
+    seconds: 0
+  })
+  const [promoFilterOnly, setPromoFilterOnly] = useState<boolean>(false)
 
   const fetchSession = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -337,13 +353,46 @@ export default function Home() {
     loadBooksFromDb()
   }, [fetchSession, loadBooksFromDb])
 
+  // ตัวนับเวลาถอยหลังโปรโมชั่นประจำสัปดาห์ (รีเซ็ตอัตโนมัติทุกเที่ยงคืนวันอาทิตย์)
+  useEffect(() => {
+    try {
+      const savedPromo = localStorage.getItem('gusso_weekly_promo_enabled')
+      if (savedPromo !== null) {
+        setIsPromotionActive(savedPromo === 'true')
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const updateCountdown = () => {
+      const info = getWeeklyPeriodInfo(new Date())
+      setWeeklyInfo(info)
+      const now = new Date().getTime()
+      const distance = info.endOfWeek.getTime() - now
+
+      if (distance <= 0) {
+        setWeeklyInfo(getWeeklyPeriodInfo(new Date()))
+      } else {
+        const days = Math.floor(distance / (1000 * 60 * 60 * 24))
+        const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+        const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60))
+        const seconds = Math.floor((distance % (1000 * 60)) / 1000)
+        setCountdown({ days, hours, minutes, seconds })
+      }
+    }
+
+    updateCountdown()
+    const timer = setInterval(updateCountdown, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     setUser(null)
     router.refresh()
   }
 
-  // กรองหนังสือตามหมวดหมู่และคำค้นหา (ตามข้อกำหนด 2.1)
+  // กรองหนังสือตามหมวดหมู่ คำค้นหา และตัวกรองเฉพาะโปรโมชั่น
   const filteredEbooks = ebooks.filter(book => {
     const matchesCategory = selectedCategory === null || book.category_id === selectedCategory
     const q = searchQuery.toLowerCase().trim()
@@ -351,10 +400,20 @@ export default function Home() {
       book.title.toLowerCase().includes(q) ||
       (book.author && book.author.toLowerCase().includes(q)) ||
       (book.description && book.description.toLowerCase().includes(q))
+
+    if (promoFilterOnly && isPromotionActive) {
+      const pricing = getBookPromotionPricing(book, weeklyInfo.activeCampaign, isPromotionActive)
+      if (!pricing.isDiscounted) return false
+    }
+
     return matchesCategory && matchesSearch
   })
 
   const addToCart = (book: Ebook) => {
+    // คำนวณราคาโปรโมชั่นรายอาทิตย์ (การันตีไม่มีทางเป็น 0 หรือติดลบ)
+    const pricing = getBookPromotionPricing(book, weeklyInfo.activeCampaign, isPromotionActive)
+    const effectivePrice = pricing.finalPrice
+
     setCart(prev => {
       const existing = prev.find(item => item.ebook_id === book.ebook_id)
       if (existing) {
@@ -362,7 +421,16 @@ export default function Home() {
           item.ebook_id === book.ebook_id ? { ...item, quantity: item.quantity + 1 } : item
         )
       }
-      return [...prev, { ...book, quantity: 1 }]
+      return [
+        ...prev,
+        {
+          ...book,
+          price: effectivePrice,
+          original_price: book.price,
+          discount_amount: pricing.discountAmount,
+          quantity: 1
+        }
+      ]
     })
   }
 
@@ -381,6 +449,11 @@ export default function Home() {
   }
 
   const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  const totalSavings = cart.reduce((sum, item) => {
+    const orig = item.original_price || item.price
+    const diff = Math.max(0, orig - item.price)
+    return sum + (diff * item.quantity)
+  }, 0)
 
   const proceedToCheckout = (e: React.FormEvent) => {
     e.preventDefault()
@@ -673,23 +746,152 @@ export default function Home() {
           </div>
         )}
 
+        {/* ======================================================== */}
+        {/* กล่องโปรโมชั่นเปลี่ยนรายอาทิตย์ (Weekly Promotion Banner) */}
+        {/* ======================================================== */}
+        {isPromotionActive && (
+          <div className="mb-8 rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 shadow-xl border border-indigo-500/20 relative overflow-hidden">
+            {/* Ambient background glow */}
+            <div className="absolute -top-24 -right-24 w-72 h-72 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="space-y-3 max-w-2xl">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 shadow-sm animate-pulse">
+                    <Flame className="w-3.5 h-3.5 fill-slate-950" />
+                    โปรโมชั่นประจำสัปดาห์ (สัปดาห์ที่ {weeklyInfo.weekNumber})
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+                    <Shield className="w-3 h-3 text-emerald-400" />
+                    การันตีราคาเป็นธรรม (ห้ามราคา 0 บาท หรือติดลบ)
+                  </span>
+                </div>
+
+                <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-white tracking-tight">
+                  {weeklyInfo.activeCampaign.title}
+                </h2>
+
+                <p className="text-sm text-slate-300 leading-relaxed">
+                  {weeklyInfo.activeCampaign.description}
+                  <span className="block text-xs text-indigo-300 mt-1">
+                    📅 ระยะเวลา: {weeklyInfo.startOfWeek.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} - {weeklyInfo.endOfWeek.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })} (หมุนเวียนโปรโมชั่นใหม่อัตโนมัติทุกวันอาทิตย์เที่ยงคืน)
+                  </span>
+                </p>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      if (weeklyInfo.activeCampaign.targetCategoryId) {
+                        setSelectedCategory(weeklyInfo.activeCampaign.targetCategoryId)
+                        setPromoFilterOnly(false)
+                      } else {
+                        setPromoFilterOnly(true)
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 font-extrabold px-5 py-2.5 rounded-xl text-xs sm:text-sm shadow-lg shadow-orange-500/20 transition transform hover:scale-105 active:scale-95 cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 fill-slate-950" />
+                    เลือกดูหนังสือที่ร่วมโปรโมชั่นสัปดาห์นี้
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setPromoFilterOnly(prev => !prev)
+                      setSelectedCategory(null)
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
+                      promoFilterOnly 
+                        ? 'bg-white text-slate-900 border-white shadow-md' 
+                        : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
+                    }`}
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                    {promoFilterOnly ? '✓ กำลังแสดงเฉพาะเล่มที่ลดราคา' : 'กรองเฉพาะเล่มที่ลดราคา'}
+                  </button>
+                </div>
+              </div>
+
+              {/* นาฬิกานับถอยหลังรายอาทิตย์ (Weekly Live Countdown Timer) */}
+              <div className="bg-slate-800/80 backdrop-blur-md rounded-2xl p-5 border border-slate-700/60 shrink-0 text-center shadow-inner">
+                <span className="text-xs text-slate-400 font-bold block mb-2 flex items-center justify-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 animate-spin" style={{ animationDuration: '6s' }} />
+                  เวลาคงเหลือของโปรโมชั่นสัปดาห์นี้
+                </span>
+
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div className="bg-slate-900/90 rounded-xl p-2.5 min-w-[56px] border border-slate-700/40">
+                    <span className="text-xl sm:text-2xl font-black text-amber-400 block font-mono">
+                      {countdown.days}
+                    </span>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">วัน</span>
+                  </div>
+                  <div className="bg-slate-900/90 rounded-xl p-2.5 min-w-[56px] border border-slate-700/40">
+                    <span className="text-xl sm:text-2xl font-black text-white block font-mono">
+                      {String(countdown.hours).padStart(2, '0')}
+                    </span>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">ชั่วโมง</span>
+                  </div>
+                  <div className="bg-slate-900/90 rounded-xl p-2.5 min-w-[56px] border border-slate-700/40">
+                    <span className="text-xl sm:text-2xl font-black text-white block font-mono">
+                      {String(countdown.minutes).padStart(2, '0')}
+                    </span>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">นาที</span>
+                  </div>
+                  <div className="bg-slate-900/90 rounded-xl p-2.5 min-w-[56px] border border-slate-700/40">
+                    <span className="text-xl sm:text-2xl font-black text-rose-400 block font-mono">
+                      {String(countdown.seconds).padStart(2, '0')}
+                    </span>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">วินาที</span>
+                  </div>
+                </div>
+
+                <p className="text-[10.5px] text-slate-400 mt-2.5 font-medium">
+                  เปลี่ยนโปรโมชั่นใหม่ทุกเที่ยงคืนวันอาทิตย์ 🔄
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* แถบปุ่มเลือกหมวดหมู่หนังสือ */}
         <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
           <button
-            onClick={() => setSelectedCategory(null)}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap shadow-sm ${selectedCategory === null ? 'bg-indigo-600 text-white shadow-indigo-200' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
+            onClick={() => { setSelectedCategory(null); setPromoFilterOnly(false); }}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap shadow-sm cursor-pointer ${
+              selectedCategory === null && !promoFilterOnly 
+                ? 'bg-indigo-600 text-white shadow-indigo-200' 
+                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
+            }`}
           >
             🌟 ทั้งหมด ({ebooks.length})
           </button>
           {categories.map((cat) => (
             <button
               key={cat.category_id}
-              onClick={() => setSelectedCategory(cat.category_id)}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap shadow-sm ${selectedCategory === cat.category_id ? 'bg-indigo-600 text-white shadow-indigo-200' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'}`}
+              onClick={() => { setSelectedCategory(cat.category_id); setPromoFilterOnly(false); }}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap shadow-sm cursor-pointer ${
+                selectedCategory === cat.category_id 
+                  ? 'bg-indigo-600 text-white shadow-indigo-200' 
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
+              }`}
             >
               {cat.category_name}
             </button>
           ))}
+          {isPromotionActive && (
+            <button
+              onClick={() => { setPromoFilterOnly(prev => !prev); setSelectedCategory(null); }}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap shadow-sm cursor-pointer flex items-center gap-1.5 ${
+                promoFilterOnly
+                  ? 'bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-red-200'
+                  : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+              ดีลประจำสัปดาห์ (ลดราคา)
+            </button>
+          )}
         </div>
 
         {/* รายการหนังสือ */}
@@ -704,18 +906,22 @@ export default function Home() {
             <h3 className="text-lg font-bold text-gray-800 mb-1">ไม่พบหนังสือที่ตรงกับคำค้นหา</h3>
             <p className="text-gray-500 text-sm mb-4">ลองค้นหาด้วยคำอื่น หรือเลือกหมวดหมู่อื่น</p>
             <button
-              onClick={() => { setSearchQuery(''); setSelectedCategory(null); }}
-              className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-100 transition"
+              onClick={() => { setSearchQuery(''); setSelectedCategory(null); setPromoFilterOnly(false); }}
+              className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl text-sm font-medium hover:bg-indigo-100 transition cursor-pointer"
             >
               แสดงหนังสือทั้งหมด
             </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredEbooks.map((book) => (
+            {filteredEbooks.map((book) => {
+              const promoPricing = getBookPromotionPricing(book, weeklyInfo.activeCampaign, isPromotionActive)
+              return (
               <div
                 key={book.ebook_id}
-                className="bg-white rounded-3xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 flex flex-col justify-between group"
+                className={`bg-white rounded-3xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border flex flex-col justify-between group ${
+                  promoPricing.isDiscounted ? 'border-amber-300 ring-2 ring-amber-100' : 'border-gray-100'
+                }`}
               >
                 <div>
                   <div className="relative overflow-hidden bg-gray-100 h-52">
@@ -730,6 +936,14 @@ export default function Home() {
                         <BookOpen className="w-12 h-12" />
                       </div>
                     )}
+                    {/* Badge โปรโมชั่นประจำสัปดาห์ (ถ้ามี) */}
+                    {promoPricing.isDiscounted && promoPricing.badgeText && (
+                      <span className="absolute top-3 left-3 bg-gradient-to-r from-red-600 to-amber-500 text-white text-[11px] font-black px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1 animate-bounce" style={{ animationDuration: '2.5s' }}>
+                        <Flame className="w-3 h-3 fill-white" />
+                        {promoPricing.badgeText}
+                      </span>
+                    )}
+
                     {/* Badge สถานะพร้อมขาย (ตามข้อกำหนด 2.1) */}
                     <span className="absolute top-3 right-3 bg-emerald-500/95 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 backdrop-blur-xs">
                       <CheckCircle className="w-3 h-3" />
@@ -777,7 +991,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => openReviewModal(book)}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 px-2 py-1 rounded-lg transition cursor-pointer"
                         title="ดูรีวิวและให้คะแนนดาว"
                       >
                         <MessageSquare className="w-3 h-3" />
@@ -789,20 +1003,38 @@ export default function Home() {
 
                 <div className="p-5 pt-0 flex items-center justify-between border-t border-gray-50 mt-2 pt-4">
                   <div>
-                    <span className="text-xs text-gray-400 block">ราคา</span>
-                    <span className="text-xl font-extrabold text-emerald-600">
-                      ฿{Number(book.price).toFixed(2)}
-                    </span>
+                    {promoPricing.isDiscounted ? (
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-400 line-through">
+                            ฿{Number(promoPricing.originalPrice).toFixed(2)}
+                          </span>
+                          <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                            ประหยัด ฿{promoPricing.discountAmount}
+                          </span>
+                        </div>
+                        <span className="text-xl font-black text-rose-600">
+                          ฿{Number(promoPricing.finalPrice).toFixed(2)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <span className="text-xs text-gray-400 block">ราคา</span>
+                        <span className="text-xl font-extrabold text-emerald-600">
+                          ฿{Number(book.price).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => addToCart(book)}
-                    className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition font-semibold text-xs shadow-md hover:shadow-indigo-200 active:scale-95"
+                    className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition font-semibold text-xs shadow-md hover:shadow-indigo-200 active:scale-95 cursor-pointer flex items-center gap-1"
                   >
-                    + ใส่ตะกร้า
+                    <span>+ ใส่ตะกร้า</span>
                   </button>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
       </div>
@@ -830,47 +1062,74 @@ export default function Home() {
                     <p className="text-center text-gray-400 py-20">ยังไม่มีสินค้าในตะกร้า เลือกซื้อหนังสือสะสมได้เลย!</p>
                   ) : (
                     <div className="space-y-4 mb-6">
-                      {cart.map((item) => (
+                      {cart.map((item) => {
+                        const hasDiscount = item.original_price && item.original_price > item.price
+                        return (
                         <div key={item.ebook_id} className="flex justify-between items-center border-b pb-4">
                           <div className="flex-1 mr-3">
                             <h3 className="font-semibold text-gray-800 text-sm line-clamp-1">{item.title}</h3>
                             <p className="text-xs text-indigo-600 mb-1">✍️ {item.author || 'GusSo'}</p>
+                            {hasDiscount && (
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className="text-[11px] text-gray-400 line-through">฿{item.original_price}</span>
+                                <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.2 rounded">
+                                  ลด ฿{item.original_price! - item.price}/เล่ม
+                                </span>
+                              </div>
+                            )}
                             <div className="flex items-center gap-2 mt-1">
                               <button
                                 onClick={() => updateQuantity(item.ebook_id, -1)}
-                                className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-xs font-bold"
+                                className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-xs font-bold cursor-pointer"
                               >
                                 -
                               </button>
                               <span className="text-xs font-semibold">{item.quantity}</span>
                               <button
                                 onClick={() => updateQuantity(item.ebook_id, 1)}
-                                className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-xs font-bold"
+                                className="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 text-xs font-bold cursor-pointer"
                               >
                                 +
                               </button>
                               <button
                                 onClick={() => removeFromCart(item.ebook_id)}
-                                className="text-[11px] text-red-500 hover:underline ml-2"
+                                className="text-[11px] text-red-500 hover:underline ml-2 cursor-pointer"
                               >
                                 ลบ
                               </button>
                             </div>
                           </div>
-                          <span className="font-bold text-emerald-600 text-sm">
-                            ฿{(item.price * item.quantity).toFixed(2)}
-                          </span>
+                          <div className="text-right">
+                            <span className="font-bold text-emerald-600 text-sm block">
+                              ฿{(item.price * item.quantity).toFixed(2)}
+                            </span>
+                            {hasDiscount && (
+                              <span className="text-[10px] text-gray-400 block">
+                                (ประหยัด ฿{((item.original_price! - item.price) * item.quantity).toFixed(2)})
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      ))}
+                      )})}
                     </div>
                   )}
                 </div>
 
                 {cart.length > 0 && (
                   <div className="border-t pt-4 space-y-4">
+                    {totalSavings > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 flex items-center justify-between font-medium">
+                        <span className="flex items-center gap-1.5 font-bold">
+                          <Flame className="w-4 h-4 text-orange-500 fill-orange-500" />
+                          ส่วนลดโปรโมชั่นประจำสัปดาห์:
+                        </span>
+                        <span className="font-extrabold text-red-600 text-sm">-฿{totalSavings.toFixed(2)}</span>
+                      </div>
+                    )}
+
                     <div className="flex justify-between text-lg font-bold text-gray-800">
-                      <span>ราคารวมทั้งหมด:</span>
-                      <span className="text-emerald-600">฿{totalPrice.toFixed(2)}</span>
+                      <span>ราคารวมสุทธิ:</span>
+                      <span className="text-emerald-600 text-xl font-extrabold">฿{totalPrice.toFixed(2)}</span>
                     </div>
 
                     <form onSubmit={proceedToCheckout} className="space-y-3">
