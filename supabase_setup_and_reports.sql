@@ -144,9 +144,45 @@ CREATE POLICY "Admin can view all users" ON public.users FOR SELECT USING (true)
 -- ส่วนที่ 3: Seed Data ข้อมูลตัวอย่าง 30 คำสั่งซื้อ (ตามเกณฑ์ข้อ 4 และ 13 ในใบงาน)
 -- ---------------------------------------------------------------------
 
--- นำเข้า 30 คำสั่งซื้อจำลอง กระจาย 6 เดือน (พ.ค. 2026 - ต.ค. 2026) ตามใบงาน
-DELETE FROM public.order_items;
-DELETE FROM public.orders;
+-- รีเซ็ตโครงสร้างตาราง orders และ order_items เพื่อความเข้ากันได้ 100%
+DROP TABLE IF EXISTS public.order_items CASCADE;
+DROP TABLE IF EXISTS public.orders CASCADE;
+
+CREATE TABLE public.orders (
+    order_id SERIAL PRIMARY KEY,
+    customer_email VARCHAR(255) NOT NULL,
+    total_amount NUMERIC(10, 2) NOT NULL CHECK (total_amount >= 0),
+    status VARCHAR(50) NOT NULL DEFAULT 'ยืนยันแล้ว',
+    payment_method VARCHAR(50) DEFAULT 'QR Code พร้อมเพย์ (จำลอง)',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE public.order_items (
+    item_id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES public.orders(order_id) ON DELETE CASCADE,
+    ebook_id INT REFERENCES public.ebooks(ebook_id),
+    quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    unit_price NUMERIC(10, 2) NOT NULL CHECK (unit_price >= 0)
+);
+
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow user view orders" ON public.orders;
+CREATE POLICY "Allow user view orders" ON public.orders FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow insert orders" ON public.orders;
+CREATE POLICY "Allow insert orders" ON public.orders FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow update orders" ON public.orders;
+CREATE POLICY "Allow update orders" ON public.orders FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow select order_items" ON public.order_items;
+CREATE POLICY "Allow select order_items" ON public.order_items FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow insert order_items" ON public.order_items;
+CREATE POLICY "Allow insert order_items" ON public.order_items FOR INSERT WITH CHECK (true);
+
 
 DO $$
 DECLARE

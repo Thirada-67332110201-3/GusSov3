@@ -7,10 +7,48 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- 1. ล้างข้อมูลคำสั่งซื้อเดิมออกก่อน (เพื่อให้ข้อมูลใหม่ 30 รายการไม่ซ้ำซ้อน)
+-- 1. สร้าง/รีเซ็ตโครงสร้างตาราง orders และ order_items ให้สมบูรณ์แบบ
+-- (ป้องกันปัญหา column "customer_email" does not exist หากตารางเดิมมีฟิลด์ไม่ตรง)
 -- ---------------------------------------------------------------------
-DELETE FROM public.order_items;
-DELETE FROM public.orders;
+DROP TABLE IF EXISTS public.order_items CASCADE;
+DROP TABLE IF EXISTS public.orders CASCADE;
+
+CREATE TABLE public.orders (
+    order_id SERIAL PRIMARY KEY,
+    customer_email VARCHAR(255) NOT NULL,
+    total_amount NUMERIC(10, 2) NOT NULL CHECK (total_amount >= 0),
+    status VARCHAR(50) NOT NULL DEFAULT 'ยืนยันแล้ว',
+    payment_method VARCHAR(50) DEFAULT 'QR Code พร้อมเพย์ (จำลอง)',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE public.order_items (
+    item_id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES public.orders(order_id) ON DELETE CASCADE,
+    ebook_id INT REFERENCES public.ebooks(ebook_id),
+    quantity INT NOT NULL DEFAULT 1 CHECK (quantity > 0),
+    unit_price NUMERIC(10, 2) NOT NULL CHECK (unit_price >= 0)
+);
+
+-- เปิดใช้งาน RLS และ Policies
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow user view orders" ON public.orders;
+CREATE POLICY "Allow user view orders" ON public.orders FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow insert orders" ON public.orders;
+CREATE POLICY "Allow insert orders" ON public.orders FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow update orders" ON public.orders;
+CREATE POLICY "Allow update orders" ON public.orders FOR UPDATE USING (true);
+
+DROP POLICY IF EXISTS "Allow select order_items" ON public.order_items;
+CREATE POLICY "Allow select order_items" ON public.order_items FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow insert order_items" ON public.order_items;
+CREATE POLICY "Allow insert order_items" ON public.order_items FOR INSERT WITH CHECK (true);
+
 
 -- ---------------------------------------------------------------------
 -- 2. นำเข้า 30 คำสั่งซื้อ กระจาย 6 เดือน (พ.ค. 2026 - ต.ค. 2026)
