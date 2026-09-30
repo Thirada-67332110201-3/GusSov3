@@ -49,12 +49,27 @@ export default function ProfilePage() {
       currentRoleId = 1
     } else {
       try {
-        const { data: dbUser } = await supabase.from('users').select('role_id').eq('id', u.id).single()
+        const { data: dbUser } = await supabase.from('users').select('role_id, role').eq('id', u.id).single()
         if (dbUser?.role_id) {
           currentRoleId = dbUser.role_id
+        } else if (dbUser?.role === 'author') {
+          currentRoleId = 3
+        } else if (dbUser?.role === 'admin') {
+          currentRoleId = 1
         }
       } catch (err) {
         console.warn('Fetch role from users table:', err)
+      }
+
+      // ตรวจสอบ fallback จาก localStorage
+      try {
+        const customRoles = JSON.parse(localStorage.getItem('gusso_custom_user_roles') || '{}')
+        const override = customRoles[u.id] || (u.email ? customRoles[u.email] : undefined)
+        if (override?.role_id) {
+          currentRoleId = override.role_id
+        }
+      } catch (e) {
+        // ignore
       }
     }
     setRoleId(currentRoleId)

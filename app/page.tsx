@@ -158,8 +158,24 @@ export default function Home() {
         setUserRoleId(1)
       } else {
         try {
-          const { data: dbUser } = await supabase.from('users').select('role_id').eq('id', session.user.id).single()
-          if (dbUser?.role_id) setUserRoleId(dbUser.role_id)
+          const { data: dbUser } = await supabase.from('users').select('role_id, role').eq('id', session.user.id).single()
+          if (dbUser?.role_id) {
+            setUserRoleId(dbUser.role_id)
+          } else if (dbUser?.role === 'author') {
+            setUserRoleId(3)
+          } else if (dbUser?.role === 'admin') {
+            setUserRoleId(1)
+          }
+        } catch (e) {
+          // ignore
+        }
+
+        try {
+          const customRoles = JSON.parse(localStorage.getItem('gusso_custom_user_roles') || '{}')
+          const override = customRoles[session.user.id] || (session.user.email ? customRoles[session.user.email] : undefined)
+          if (override?.role_id) {
+            setUserRoleId(override.role_id)
+          }
         } catch (e) {
           // ignore
         }

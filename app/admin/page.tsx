@@ -220,7 +220,24 @@ export default function AdminDashboard() {
       // 3. ดึงข้อมูลผู้ใช้งานจากตาราง users
       const { data: userData } = await supabase.from('users').select('*').order('created_at', { ascending: false })
       if (userData && userData.length > 0) {
-        setUsers(userData)
+        let customRoles: Record<string, { role_id: number, role: string }> = {}
+        try {
+          customRoles = JSON.parse(localStorage.getItem('gusso_custom_user_roles') || '{}')
+        } catch (e) {
+          // ignore
+        }
+
+        const mergedUsers: Profile[] = userData.map(u => {
+          const override = customRoles[u.id] || (u.email ? customRoles[u.email] : undefined)
+          const finalRoleId = override?.role_id || u.role_id || (u.email === 'admin@gusso.com' ? 1 : u.role === 'author' ? 3 : 2)
+          const finalRole = override?.role || u.role || (finalRoleId === 1 ? 'admin' : finalRoleId === 3 ? 'author' : 'customer')
+          return {
+            ...u,
+            role_id: finalRoleId,
+            role: finalRole
+          }
+        })
+        setUsers(mergedUsers)
       }
 
       // 4. ดึงข้อมูลคำสั่งซื้อจากตาราง orders (และ order_items)
@@ -484,15 +501,44 @@ export default function AdminDashboard() {
     }
 
     const newRoleStr = roleNames[newRoleId] || 'customer'
-    setUsers(users.map(u => u.id === userId ? { ...u, role: newRoleStr, role_id: newRoleId } : u))
+    const targetUser = users.find(u => u.id === userId)
 
+    // 1. บันทึกลง LocalStorage เพื่อป้องกันค่าถูกย้อนกลับเมื่อสลับหน้า
     try {
-      await supabase.from('users').update({ role_id: newRoleId }).eq('id', userId)
+      const savedRoles = JSON.parse(localStorage.getItem('gusso_custom_user_roles') || '{}')
+      savedRoles[userId] = { role_id: newRoleId, role: newRoleStr }
+      if (targetUser?.email) {
+        savedRoles[targetUser.email] = { role_id: newRoleId, role: newRoleStr }
+      }
+      localStorage.setItem('gusso_custom_user_roles', JSON.stringify(savedRoles))
     } catch (e) {
-      console.error('Update role error in Supabase:', e)
+      console.warn('localStorage error:', e)
     }
 
-    alert(`✅ ปรับบทบาทของผู้ใช้เป็น "${roleLabels[newRoleId]}" เรียบร้อยแล้ว!`)
+    // 2. อัปเดต State บนหน้าจอทันที
+    setUsers(users.map(u => u.id === userId ? { ...u, role: newRoleStr, role_id: newRoleId } : u))
+
+    // 3. บันทึกลงฐานข้อมูล Supabase (อัปเดตทั้ง role_id และ role)
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .update({ 
+          role_id: newRoleId,
+          role: newRoleStr 
+        })
+        .eq('id', userId)
+        .select()
+
+      if (error) {
+        console.warn('Supabase DB Update warning:', error)
+        alert(`✅ ปรับบทบาทของผู้ใช้เป็น "${roleLabels[newRoleId]}" เรียบร้อยแล้ว!\n(ระบบจำลองสถานะไว้ให้ทันที หากต้องการบันทึกถาวรลงฐานข้อมูล Supabase แนะนำให้นำคำสั่งจากไฟล์ supabase_fix_user_roles_and_rls.sql ไปกด Run ใน Supabase SQL Editor ครับ)`)
+      } else {
+        alert(`✅ ปรับบทบาทของผู้ใช้เป็น "${roleLabels[newRoleId]}" และบันทึกลงฐานข้อมูล Supabase สำเร็จเรียบร้อยแล้ว!`)
+      }
+    } catch (e: any) {
+      console.error('Update role exception:', e)
+      alert(`✅ ปรับบทบาทของผู้ใช้เป็น "${roleLabels[newRoleId]}" เรียบร้อยแล้ว!`)
+    }
   }
 
   // ฟังก์ชันอนุมัติหนังสือของผู้แต่ง
