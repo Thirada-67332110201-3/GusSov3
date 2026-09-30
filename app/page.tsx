@@ -146,12 +146,24 @@ export default function Home() {
   // ขั้นตอนการชำระเงิน
   const [step, setStep] = useState<'cart' | 'qrcode'>('cart')
   const [paying, setPaying] = useState(false)
+  const [userRoleId, setUserRoleId] = useState<number>(2)
 
   const fetchSession = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       setUser(session.user)
       setCheckoutEmail(session.user.email || '')
+
+      if (session.user.email === 'admin@gusso.com') {
+        setUserRoleId(1)
+      } else {
+        try {
+          const { data: dbUser } = await supabase.from('users').select('role_id').eq('id', session.user.id).single()
+          if (dbUser?.role_id) setUserRoleId(dbUser.role_id)
+        } catch (e) {
+          // ignore
+        }
+      }
     }
   }, [supabase])
 
@@ -165,8 +177,10 @@ export default function Home() {
         .order('ebook_id', { ascending: true })
 
       if (data && data.length > 0) {
+        // กรองเฉพาะหนังสือที่อนุมัติแล้วเท่านั้น (ไม่แสดง pending หรือ rejected บนหน้าร้าน)
+        const approvedOnly = data.filter(b => b.approval_status !== 'pending' && b.approval_status !== 'rejected')
         const authorsList = ['ดร. ธนวัฒน์ หาญณรงค์', 'อ. ธีรดา หล่อทอง', 'Alex River', 'Sarah Connor', 'John Doe']
-        const formatted = data.map((b, idx) => ({
+        const formatted = approvedOnly.map((b, idx) => ({
           ...b,
           author: b.author || authorsList[idx % authorsList.length],
           stock_status: b.stock_status || 'พร้อมจำหน่าย',
@@ -371,6 +385,17 @@ export default function Home() {
                   <User className="w-4 h-4 text-violet-600" />
                   <span>โปรไฟล์</span>
                 </Link>
+
+                {(userRoleId === 3 || user.email === 'admin@gusso.com') && (
+                  <Link
+                    href="/author"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl transition border border-purple-200 shadow-xs"
+                    title="ห้องทำงานนักเขียน (Author Studio)"
+                  >
+                    <span>✍️</span>
+                    <span className="hidden md:inline">ห้องทำงานนักเขียน</span>
+                  </Link>
+                )}
 
                 {user.email === 'admin@gusso.com' && (
                   <Link

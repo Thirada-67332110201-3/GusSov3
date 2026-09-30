@@ -18,9 +18,13 @@ type Ebook = {
   is_active: boolean
   stock_status: string
   author?: string
+  author_id?: number
   category_id?: number
   description?: string
   cover_image?: string
+  approval_status?: 'pending' | 'approved' | 'rejected'
+  submitted_by?: string
+  rejection_reason?: string
 }
 
 type Category = {
@@ -120,7 +124,9 @@ export default function AdminDashboard() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
-  const [activeTab, setActiveTab] = useState<'ebooks' | 'categories' | 'orders' | 'users' | 'reports'>('reports')
+  const [activeTab, setActiveTab] = useState<'ebooks' | 'categories' | 'orders' | 'users' | 'reports' | 'approvals' | 'revenue'>('reports')
+  const [approvalFilter, setApprovalFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
+  const [authors, setAuthors] = useState<{ author_id: number, author_name: string }[]>([])
 
   // ข้อมูลในระบบ
   const [ebooks, setEbooks] = useState<Ebook[]>([])
@@ -187,10 +193,22 @@ export default function AdminDashboard() {
     setIsAdmin(true)
 
     try {
-      // 1. ดึงข้อมูลหนังสือ
+      // 1. ดึงข้อมูลผู้แต่ง
+      const { data: authorData } = await supabase.from('authors').select('*')
+      if (authorData && authorData.length > 0) {
+        setAuthors(authorData)
+      }
+      const authorMap = new Map((authorData || []).map(a => [a.author_id, a.author_name]))
+
+      // 1.1 ดึงข้อมูลหนังสือ พร้อมสถานะการอนุมัติ
       const { data: ebookData } = await supabase.from('ebooks').select('*').order('ebook_id', { ascending: false })
       if (ebookData && ebookData.length > 0) {
-        setEbooks(ebookData)
+        const enrichedEbooks: Ebook[] = ebookData.map(b => ({
+          ...b,
+          author: authorMap.get(b.author_id) || b.author || 'ไม่ระบุผู้แต่ง',
+          approval_status: b.approval_status || 'approved'
+        }))
+        setEbooks(enrichedEbooks)
       }
 
       // 2. ดึงข้อมูลหมวดหมู่
@@ -477,6 +495,130 @@ export default function AdminDashboard() {
     alert(`✅ ปรับบทบาทของผู้ใช้เป็น "${roleLabels[newRoleId]}" เรียบร้อยแล้ว!`)
   }
 
+  // ฟังก์ชันอนุมัติหนังสือของผู้แต่ง
+  const handleApproveBook = async (bookId: number) => {
+    try {
+      await supabase.from('ebooks').update({
+        approval_status: 'approved',
+        is_active: true,
+        rejection_reason: null
+      }).eq('ebook_id', bookId)
+
+      setEbooks(ebooks.map(b => b.ebook_id === bookId ? {
+        ...b,
+        approval_status: 'approved',
+        is_active: true,
+        rejection_reason: undefined
+      } : b))
+
+      alert(`✅ อนุมัติหนังสือ #${bookId} เรียบร้อยแล้ว!\nหนังสือจะวางจำหน่ายบนหน้าแรกของร้านค้าทันที`)
+    } catch (err) {
+      console.error('Approve error:', err)
+      alert('เกิดข้อผิดพลาดในการอนุมัติหนังสือ')
+    }
+  }
+
+  // ฟังก์ชันปฏิเสธหนังสือของผู้แต่ง พร้อมระบุเหตุผล
+  const handleRejectBook = async (bookId: number) => {
+    const reason = prompt('กรุณาระบุเหตุผลที่ไม่อนุมัติ (เช่น เนื้อหาไม่เหมาะสม, ภาพหน้าปกไม่ชัดเจน):', 'เนื้อหาไม่ผ่านเกณฑ์มาตรฐานของร้านค้า')
+    if (reason === null) return // กดยกเลิก
+
+    try {
+      await supabase.from('ebooks').update({
+        approval_status: 'rejected',
+        is_active: false,
+        rejection_reason: reason
+      }).eq('ebook_id', bookId)
+
+      setEbooks(ebooks.map(b => b.ebook_id === bookId ? {
+        ...b,
+        approval_status: 'rejected',
+        is_active: false,
+        rejection_reason: reason
+      } : b))
+
+      alert(`❌ ปฏิเสธหนังสือ #${bookId} เรียบร้อยแล้ว (หนังสือจะไม่แสดงบนหน้าร้านค้า)`)
+    } catch (err) {
+      console.error('Reject error:', err)
+      alert('เกิดข้อผิดพลาดในการปฏิเสธหนังสือ')
+    }
+  }
+
+  // คำนวณรายงานส่วนแบ่งรายได้ 60% (ผู้แต่ง) / 40% (เจ้าของเว็บ)
+  const authorRevenueReport = useMemo(() => {
+    const confirmedOrders = orders.filter(o => o.status === 'ยืนยันแล้ว' || o.status === 'completed')
+
+    // แผนที่ข้อมูลผู้แต่ง
+    const authorMap = new Map<string, {
+      author_name: string
+      totalUnits: number
+      grossSales: number
+      bookSales: Map<string, { title: string, units: number, revenue: number }>
+    }>()
+
+    // ตั้งต้นรายชื่อผู้แต่งจากหนังสือ
+    ebooks.forEach(book => {
+      const authorName = book.author || 'นักเขียนอิสระ'
+      if (!authorMap.has(authorName)) {
+        authorMap.set(authorName, {
+          author_name: authorName,
+          totalUnits: 0,
+          grossSales: 0,
+          bookSales: new Map()
+        })
+      }
+      const a = authorMap.get(authorName)!
+      if (!a.bookSales.has(book.title)) {
+        a.bookSales.set(book.title, { title: book.title, units: 0, revenue: 0 })
+      }
+    })
+
+    // คำนวณยอดขายจากคำสั่งซื้อจริง
+    confirmedOrders.forEach(o => {
+      ebooks.forEach(b => {
+        if (o.items_summary?.includes(b.title)) {
+          const a = authorMap.get(b.author || 'นักเขียนอิสระ')
+          if (a) {
+            a.totalUnits += 1
+            a.grossSales += b.price
+            const bSale = a.bookSales.get(b.title)
+            if (bSale) {
+              bSale.units += 1
+              bSale.revenue += b.price
+            }
+          }
+        }
+      })
+    })
+
+    return Array.from(authorMap.values()).map(a => {
+      // ค้นหาเล่มขายดีที่สุดของนักเขียนคนนี้
+      let bestSellerTitle = '-'
+      let maxUnits = -1
+      a.bookSales.forEach(bs => {
+        if (bs.units > maxUnits && bs.units > 0) {
+          maxUnits = bs.units
+          bestSellerTitle = `${bs.title} (${bs.units} เล่ม)`
+        }
+      })
+      if (bestSellerTitle === '-' && a.bookSales.size > 0) {
+        bestSellerTitle = Array.from(a.bookSales.keys())[0] + ' (พร้อมจำหน่าย)'
+      }
+
+      const authorShare60 = Math.round(a.grossSales * 0.60)
+      const platformShare40 = Math.round(a.grossSales * 0.40)
+
+      return {
+        author_name: a.author_name,
+        total_units: a.totalUnits,
+        gross_sales: a.grossSales,
+        author_share_60: authorShare60,
+        platform_share_40: platformShare40,
+        best_seller: bestSellerTitle
+      }
+    }).sort((x, y) => y.gross_sales - x.gross_sales)
+  }, [orders, ebooks])
+
   // ส่งออกรายงานวิเคราะห์เป็นไฟล์ CSV สำหรับใส่เล่มรายงาน
   const exportReportsToCSV = () => {
     let csvContent = '\uFEFF' // BOM for UTF-8 support in Excel
@@ -631,6 +773,31 @@ export default function AdminDashboard() {
           >
             <Users className="w-4 h-4" />
             จัดการผู้ใช้ & บทบาท ({users.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('approvals')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition whitespace-nowrap relative ${
+              activeTab === 'approvals' ? 'bg-purple-600 text-white shadow-md shadow-purple-100' : 'bg-white text-gray-600 border hover:bg-gray-50'
+            }`}
+          >
+            <CheckCircle className="w-4 h-4" />
+            ตรวจอนุมัติ E-Book
+            {ebooks.filter(b => b.approval_status === 'pending').length > 0 && (
+              <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full font-extrabold animate-pulse">
+                {ebooks.filter(b => b.approval_status === 'pending').length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('revenue')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition whitespace-nowrap ${
+              activeTab === 'revenue' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-100' : 'bg-white text-gray-600 border hover:bg-gray-50'
+            }`}
+          >
+            <DollarSign className="w-4 h-4" />
+            💰 ส่วนแบ่งรายได้ 60/40
           </button>
         </div>
 
@@ -1491,6 +1658,273 @@ export default function AdminDashboard() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* แท็บที่ 6: ตรวจสอบและอนุมัติ E-Book จากนักเขียน (Content Approval) */}
+        {/* ======================================================== */}
+        {activeTab === 'approvals' && (
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <span className="p-1.5 bg-purple-100 text-purple-700 rounded-lg text-lg">📑</span>
+                  ระบบตรวจสอบและอนุมัติเนื้อหา E-Book (Content Approval)
+                </h2>
+                <p className="text-xs text-gray-500">
+                  ตรวจสอบความเหมาะสมของผลงาน หน้าปก และราคาขาย ก่อนเปิดจำหน่ายบนหน้าร้านค้า
+                </p>
+              </div>
+
+              {/* ฟิลเตอร์สถานะการอนุมัติ */}
+              <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-2xl border border-gray-200 text-xs">
+                {(['all', 'pending', 'approved', 'rejected'] as const).map(st => (
+                  <button
+                    key={st}
+                    onClick={() => setApprovalFilter(st)}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition capitalize ${
+                      approvalFilter === st ? 'bg-purple-600 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {st === 'all' && `ทั้งหมด (${ebooks.length})`}
+                    {st === 'pending' && `รอตรวจสอบ (${ebooks.filter(b => b.approval_status === 'pending').length})`}
+                    {st === 'approved' && `อนุมัติแล้ว (${ebooks.filter(b => b.approval_status === 'approved').length})`}
+                    {st === 'rejected' && `ไม่อนุมัติ (${ebooks.filter(b => b.approval_status === 'rejected').length})`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* รายการหนังสือตามฟิลเตอร์ */}
+            {ebooks.filter(b => approvalFilter === 'all' ? true : b.approval_status === approvalFilter).length === 0 ? (
+              <div className="py-16 text-center text-gray-400 space-y-2">
+                <div className="text-4xl">📚</div>
+                <p className="text-sm font-semibold">ไม่มีรายการหนังสือในหมวดนี้</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {ebooks
+                  .filter(b => approvalFilter === 'all' ? true : b.approval_status === approvalFilter)
+                  .map(book => {
+                    const authorShare = Math.round(book.price * 0.60)
+                    const platformShare = Math.round(book.price * 0.40)
+                    const isPending = book.approval_status === 'pending'
+                    const isApproved = book.approval_status === 'approved'
+                    const isRejected = book.approval_status === 'rejected'
+
+                    return (
+                      <div
+                        key={book.ebook_id}
+                        className={`rounded-2xl border p-4 sm:p-5 flex gap-4 transition ${
+                          isPending ? 'border-amber-300 bg-amber-50/30' : isRejected ? 'border-red-200 bg-red-50/20' : 'border-gray-200 bg-white'
+                        }`}
+                      >
+                        <img
+                          src={book.cover_image}
+                          alt={book.title}
+                          className="w-20 h-28 object-cover rounded-xl shadow-xs border border-gray-200 shrink-0"
+                        />
+                        <div className="flex-1 flex flex-col justify-between space-y-2">
+                          <div>
+                            <div className="flex items-start justify-between gap-2">
+                              <h3 className="font-bold text-gray-900 text-sm line-clamp-1">{book.title}</h3>
+                              <span className="text-[11px] font-mono text-gray-400">#{book.ebook_id}</span>
+                            </div>
+                            <p className="text-xs text-indigo-600 font-medium mt-0.5">
+                              ✍️ ผู้แต่ง: {book.author || 'ไม่ระบุ'}
+                            </p>
+                            <p className="text-xs text-gray-500 line-clamp-2 mt-1">
+                              {book.description || 'ไม่มีคำอธิบาย'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs pt-2 border-t border-gray-100">
+                            <div>
+                              <span className="font-extrabold text-gray-900 text-sm">฿{book.price.toLocaleString()}</span>
+                              <span className="text-[10px] text-gray-400 block">
+                                นักเขียนรับ ฿{authorShare} (60%) | เว็บ ฿{platformShare} (40%)
+                              </span>
+                            </div>
+
+                            <div>
+                              {isPending && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                  <Clock className="w-3 h-3 text-amber-600" />
+                                  รอตรวจสอบ
+                                </span>
+                              )}
+                              {isApproved && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                  อนุมัติแล้ว
+                                </span>
+                              )}
+                              {isRejected && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-100 text-red-800 border border-red-200">
+                                  <XCircle className="w-3 h-3 text-red-600" />
+                                  ไม่อนุมัติ
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex gap-2 pt-2">
+                            <button
+                              onClick={() => handleApproveBook(book.ebook_id)}
+                              disabled={isApproved}
+                              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 ${
+                                isApproved
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                              }`}
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              {isApproved ? 'อนุมัติแล้ว' : '✅ อนุมัติ'}
+                            </button>
+                            <button
+                              onClick={() => handleRejectBook(book.ebook_id)}
+                              disabled={isRejected}
+                              className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 ${
+                                isRejected
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-200'
+                              }`}
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              {isRejected ? 'ปฏิเสธแล้ว' : '❌ ปฏิเสธ'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* แท็บที่ 7: รายงานส่วนแบ่งรายได้ 60% (ผู้แต่ง) / 40% (เว็บไซต์) */}
+        {/* ======================================================== */}
+        {activeTab === 'revenue' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <span className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-lg">💰</span>
+                    รายงานส่วนแบ่งรายได้ 60% (ผู้แต่ง) / 40% (เจ้าของเว็บไซต์)
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    สรุปยอดขายสุทธิ การจัดสรรเงินส่วนแบ่งผู้แต่ง และค่าบริการพื้นที่ของร้านค้า E-Book
+                  </p>
+                </div>
+                <button
+                  onClick={exportReportsToCSV}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-emerald-200"
+                >
+                  <Download className="w-4 h-4" />
+                  ส่งออกรายงานส่วนแบ่ง (.CSV)
+                </button>
+              </div>
+
+              {/* KPI Cards สรุปยอดส่วนแบ่ง */}
+              {(() => {
+                const totalGross = authorRevenueReport.reduce((acc, a) => acc + a.gross_sales, 0)
+                const totalAuthorShare = authorRevenueReport.reduce((acc, a) => acc + a.author_share_60, 0)
+                const totalPlatformShare = authorRevenueReport.reduce((acc, a) => acc + a.platform_share_40, 0)
+                const totalUnits = authorRevenueReport.reduce((acc, a) => acc + a.total_units, 0)
+
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-sm">
+                      <p className="text-xs text-slate-400 font-medium">ยอดขายรวมทั้งหมด (Gross Sales)</p>
+                      <h3 className="text-2xl font-black mt-1">฿{totalGross.toLocaleString()}</h3>
+                      <p className="text-[11px] text-slate-400 mt-1">จากคำสั่งซื้อที่สำเร็จ {totalUnits} เล่ม</p>
+                    </div>
+
+                    <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-2xl shadow-xs">
+                      <p className="text-xs text-emerald-800 font-medium">ส่วนแบ่งจ่ายนักเขียน 60% (Royalty)</p>
+                      <h3 className="text-2xl font-black text-emerald-700 mt-1">฿{totalAuthorShare.toLocaleString()}</h3>
+                      <p className="text-[11px] text-emerald-600 mt-1">ส่วนแบ่งตามสัญญานักเขียน</p>
+                    </div>
+
+                    <div className="bg-indigo-50 border border-indigo-200 p-5 rounded-2xl shadow-xs">
+                      <p className="text-xs text-indigo-800 font-medium">รายได้เจ้าของเว็บไซต์ 40% (Platform)</p>
+                      <h3 className="text-2xl font-black text-indigo-700 mt-1">฿{totalPlatformShare.toLocaleString()}</h3>
+                      <p className="text-[11px] text-indigo-600 mt-1">ค่าพื้นที่ & ระบบปฏิบัติการ</p>
+                    </div>
+
+                    <div className="bg-purple-50 border border-purple-200 p-5 rounded-2xl shadow-xs">
+                      <p className="text-xs text-purple-800 font-medium">นักเขียนในระบบ</p>
+                      <h3 className="text-2xl font-black text-purple-700 mt-1">{authorRevenueReport.length} <span className="text-xs font-normal text-purple-500">คน</span></h3>
+                      <p className="text-[11px] text-purple-600 mt-1">พร้อมเปิดจำหน่ายผลงาน</p>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* ตารางแจกแจงรายได้ต่อนักเขียนแต่ละคน */}
+              <div className="border border-gray-200 rounded-2xl overflow-hidden">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-700 font-bold text-xs uppercase border-b border-gray-200">
+                      <th className="p-3.5">ผู้แต่ง / นามปากกา</th>
+                      <th className="p-3.5 text-center">ยอดขาย (เล่ม)</th>
+                      <th className="p-3.5 text-right">ยอดขายรวม (Gross)</th>
+                      <th className="p-3.5 text-right text-emerald-700">ส่วนแบ่งผู้แต่ง (60%)</th>
+                      <th className="p-3.5 text-right text-indigo-700">ค่าพื้นที่เข้าเว็บ (40%)</th>
+                      <th className="p-3.5">🏆 หนังสือขายดีที่สุด</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {authorRevenueReport.map((ar, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50 transition">
+                        <td className="p-3.5 font-bold text-gray-900 flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          {ar.author_name}
+                        </td>
+                        <td className="p-3.5 text-center font-semibold text-gray-700">
+                          {ar.total_units} เล่ม
+                        </td>
+                        <td className="p-3.5 text-right font-bold text-gray-900">
+                          ฿{ar.gross_sales.toLocaleString()}
+                        </td>
+                        <td className="p-3.5 text-right font-extrabold text-emerald-700">
+                          ฿{ar.author_share_60.toLocaleString()}
+                        </td>
+                        <td className="p-3.5 text-right font-bold text-indigo-700">
+                          ฿{ar.platform_share_40.toLocaleString()}
+                        </td>
+                        <td className="p-3.5 text-xs text-gray-600">
+                          <span className="bg-amber-50 text-amber-900 border border-amber-200 px-2 py-1 rounded-lg font-medium">
+                            {ar.best_seller}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* กล่องอธิบายเกณฑ์วิชา Database */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-600 space-y-1">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-indigo-600" />
+                  หลักการคำนวณและข้อกำหนดในโครงงานฐานข้อมูล:
+                </div>
+                <p>
+                  • ข้อมูลคำนวณจากตาราง <code className="bg-white px-1.5 py-0.5 rounded border text-indigo-700">orders</code> และ <code className="bg-white px-1.5 py-0.5 rounded border text-indigo-700">order_items</code> ร่วมกับ <code className="bg-white px-1.5 py-0.5 rounded border text-indigo-700">authors</code>
+                </p>
+                <p>
+                  • อัตราการจัดสรร: ผู้แต่ง 60% และระบบหน้าร้าน 40% ต่อ 1 หน่วยการสั่งซื้อที่สำเร็จ (Confirmed Orders)
+                </p>
+              </div>
             </div>
           </div>
         )}
