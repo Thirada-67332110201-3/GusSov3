@@ -16,6 +16,14 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+
+  // ฟิลด์สำหรับสมัครสมาชิก
+  const [username, setUsername] = useState('')
+  const [signupPassword, setSignupPassword] = useState('')
+  const [showSignupPassword, setShowSignupPassword] = useState(false)
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+
   const [loading, setLoading] = useState(false)
 
   // จัดการเข้าสู่ระบบ
@@ -42,15 +50,43 @@ export default function LoginPage() {
   // จัดการสมัครสมาชิก
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    const cleanUsername = username.trim()
+    const cleanEmail = email.trim().toLowerCase()
+
+    if (!cleanUsername) {
+      alert('กรุณากรอกชื่อผู้ใช้ (Username)')
+      return
+    }
+
+    if (signupPassword !== confirmPassword) {
+      alert('รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน กรุณาตรวจสอบอีกครั้ง')
+      return
+    }
+
+    if (signupPassword.length < 6) {
+      alert('รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษรขึ้นไป')
+      return
+    }
+
     setLoading(true)
 
-    const cleanEmail = email.trim().toLowerCase()
-    const { error } = await supabase.auth.signUp({ email: cleanEmail, password })
+    const { data: signUpData, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password: signupPassword,
+      options: {
+        data: {
+          username: cleanUsername,
+          full_name: cleanUsername
+        }
+      }
+    })
 
     if (error) {
       alert('สมัครสมาชิกไม่สำเร็จ: ' + error.message)
     } else {
-      alert('สมัครสมาชิกสำเร็จ! สามารถเข้าสู่ระบบได้ทันที')
+      alert(`🎉 สมัครสมาชิกสำเร็จ ยินดีต้อนรับคุณ ${cleanUsername}! สามารถเข้าสู่ระบบได้ทันที`)
+      setPassword(signupPassword)
       setMode('login')
     }
     setLoading(false)
@@ -168,6 +204,18 @@ export default function LoginPage() {
         {mode === 'signup' && (
           <form onSubmit={handleSignup} className="space-y-4">
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อผู้ใช้ (Username)</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                placeholder="เช่น somchai99 หรือ GusSo"
+                autoComplete="nickname"
+                required
+              />
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">อีเมล</label>
               <input
                 type="email"
@@ -180,12 +228,12 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">รหัสผ่าน</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">รหัสผ่าน (อย่างน้อย 6 ตัวอักษร)</label>
               <div className="relative">
                 <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  type={showSignupPassword ? 'text' : 'password'}
+                  value={signupPassword}
+                  onChange={(e) => setSignupPassword(e.target.value)}
                   className="w-full border rounded-lg p-3 pr-10 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="••••••••"
                   autoComplete="new-password"
@@ -193,10 +241,33 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowSignupPassword(!showSignupPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  tabIndex={-1}
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showSignupPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ยืนยันรหัสผ่านอีกครั้ง</label>
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full border rounded-lg p-3 pr-10 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>

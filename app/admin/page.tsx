@@ -15,6 +15,8 @@ type Ebook = {
 type Profile = {
   id: string
   email: string
+  name?: string
+  username?: string
   created_at: string
 }
 
@@ -237,6 +239,7 @@ export default function AdminDashboard() {
               <thead>
                 <tr className="bg-gray-100 text-left text-gray-600">
                   <th className="p-3">ID ผู้ใช้</th>
+                  <th className="p-3">ชื่อผู้ใช้</th>
                   <th className="p-3">อีเมล</th>
                   <th className="p-3">วันที่สมัคร</th>
                 </tr>
@@ -244,12 +247,13 @@ export default function AdminDashboard() {
               <tbody>
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="p-6 text-center text-gray-400">ยังไม่มีข้อมูลผู้ใช้งานในตาราง users</td>
+                    <td colSpan={4} className="p-6 text-center text-gray-400">ยังไม่มีข้อมูลผู้ใช้งานในตาราง users</td>
                   </tr>
                 ) : (
                   users.map((u) => (
                     <tr key={u.id} className="border-t hover:bg-gray-50">
                       <td className="p-3 text-gray-500 font-mono text-xs">{u.id}</td>
+                      <td className="p-3 font-semibold text-indigo-700">{u.name || u.username || u.email.split('@')[0]}</td>
                       <td className="p-3 font-medium text-gray-800">{u.email}</td>
                       <td className="p-3 text-gray-500">{new Date(u.created_at).toLocaleString()}</td>
                     </tr>
