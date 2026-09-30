@@ -153,6 +153,21 @@ export default function AdminDashboard() {
   // ฟอร์มเพิ่มหมวดหมู่ใหม่
   const [newCategoryName, setNewCategoryName] = useState('')
 
+  // จัดการการแก้ไข E-Book (ตามข้อ 3 ในใบงาน)
+  const [editingBook, setEditingBook] = useState<Ebook | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editPrice, setEditPrice] = useState('')
+  const [editAuthor, setEditAuthor] = useState('')
+  const [editCategoryId, setEditCategoryId] = useState('1')
+  const [editDesc, setEditDesc] = useState('')
+
+  // จัดการการแก้ไขหมวดหมู่ (ตามข้อ 3 ในใบงาน)
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
+  const [editCategoryName, setEditCategoryName] = useState('')
+
+  // จัดการตรวจสอบหลักฐานสลิปจำลอง (ตามข้อ 3 ในใบงาน)
+  const [viewingSlipOrder, setViewingSlipOrder] = useState<OrderItem | null>(null)
+
   const checkUserAndFetchData = useCallback(async () => {
     setLoading(true)
     const { data: { session } } = await supabase.auth.getSession()
@@ -369,6 +384,60 @@ export default function AdminDashboard() {
     setCategories([...categories, newCat])
     setNewCategoryName('')
     alert(`เพิ่มหมวดหมู่ "${newCat.category_name}" เรียบร้อยแล้ว!`)
+  }
+
+  // ฟังก์ชันเปิด Modal แก้ไขหนังสือ
+  const handleOpenEditBook = (book: Ebook) => {
+    setEditingBook(book)
+    setEditTitle(book.title)
+    setEditPrice(String(book.price))
+    setEditAuthor(book.author || '')
+    setEditCategoryId(String(book.category_id || 1))
+    setEditDesc(book.description || '')
+  }
+
+  // ฟังก์ชันบันทึกการแก้ไขหนังสือ
+  const handleSaveEditBook = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingBook) return
+    const priceNum = parseFloat(editPrice)
+    const updated = {
+      title: editTitle,
+      price: priceNum,
+      author: editAuthor,
+      category_id: parseInt(editCategoryId),
+      description: editDesc
+    }
+
+    try {
+      await supabase.from('ebooks').update(updated).eq('ebook_id', editingBook.ebook_id)
+    } catch (err) {
+      console.error(err)
+    }
+
+    setEbooks(ebooks.map(b => b.ebook_id === editingBook.ebook_id ? { ...b, ...updated } : b))
+    setEditingBook(null)
+    alert('🎉 อัปเดตข้อมูลหนังสือเรียบร้อยแล้ว!')
+  }
+
+  // ฟังก์ชันเปิด Modal แก้ไขหมวดหมู่
+  const handleOpenEditCategory = (cat: Category) => {
+    setEditingCategory(cat)
+    setEditCategoryName(cat.category_name)
+  }
+
+  // ฟังก์ชันบันทึกการแก้ไขหมวดหมู่
+  const handleSaveEditCategory = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingCategory) return
+    try {
+      await supabase.from('categories').update({ category_name: editCategoryName.trim() }).eq('category_id', editingCategory.category_id)
+    } catch (err) {
+      console.error(err)
+    }
+    setCategories(categories.map(c => c.category_id === editingCategory.category_id ? { ...c, category_name: editCategoryName.trim() } : c))
+    setEditingCategory(null)
+    alert('🎉 อัปเดตชื่อหมวดหมู่เรียบร้อยแล้ว!')
   }
 
   // ฟังก์ชันเปลี่ยนสถานะคำสั่งซื้อ และซิงค์ไปยัง Supabase
@@ -1100,6 +1169,7 @@ export default function AdminDashboard() {
                     <th className="p-3.5">รายการหนังสือ</th>
                     <th className="p-3.5">ยอดเงิน</th>
                     <th className="p-3.5">วันที่</th>
+                    <th className="p-3.5 text-center">หลักฐานสลิป</th>
                     <th className="p-3.5">สถานะ</th>
                     <th className="p-3.5 text-center rounded-r-xl">เปลี่ยนสถานะ</th>
                   </tr>
@@ -1112,6 +1182,14 @@ export default function AdminDashboard() {
                       <td className="p-3.5 text-xs text-gray-600 max-w-xs truncate">{o.items_summary}</td>
                       <td className="p-3.5 font-bold text-emerald-600">฿{Number(o.total_amount).toFixed(2)}</td>
                       <td className="p-3.5 text-xs text-gray-400">{new Date(o.created_at).toLocaleDateString('th-TH')}</td>
+                      <td className="p-3.5 text-center">
+                        <button
+                          onClick={() => setViewingSlipOrder(o)}
+                          className="px-2.5 py-1 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition inline-flex items-center gap-1 shadow-sm border border-indigo-100"
+                        >
+                          🔍 ตรวจสลิป
+                        </button>
+                      </td>
                       <td className="p-3.5">
                         <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
                           o.status === 'ยืนยันแล้ว' ? 'bg-emerald-100 text-emerald-700' :
@@ -1237,7 +1315,7 @@ export default function AdminDashboard() {
                       <th className="p-3.5">ชื่อหนังสือ</th>
                       <th className="p-3.5">ราคา</th>
                       <th className="p-3.5">สถานะ</th>
-                      <th className="p-3.5 text-center rounded-r-xl">เปิด/ปิดการขาย</th>
+                      <th className="p-3.5 text-center rounded-r-xl">จัดการข้อมูล</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -1251,10 +1329,16 @@ export default function AdminDashboard() {
                             {b.is_active ? 'เปิดจำหน่าย' : 'ปิดการขาย'}
                           </span>
                         </td>
-                        <td className="p-3.5 text-center">
+                        <td className="p-3.5 text-center space-x-1.5 whitespace-nowrap">
+                          <button
+                            onClick={() => handleOpenEditBook(b)}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition shadow-sm"
+                          >
+                            ✏️ แก้ไข
+                          </button>
                           <button
                             onClick={() => toggleStatus(b.ebook_id, b.is_active)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold text-white transition ${
+                            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold text-white transition shadow-sm ${
                               b.is_active ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-600 hover:bg-emerald-700'
                             }`}
                           >
@@ -1303,9 +1387,17 @@ export default function AdminDashboard() {
                     <span className="font-semibold text-gray-800 text-sm">
                       #{c.category_id} {c.category_name}
                     </span>
-                    <span className="text-xs bg-indigo-100 text-indigo-700 font-semibold px-2.5 py-1 rounded-full">
-                      หมวดหมู่หลัก
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs bg-indigo-100 text-indigo-700 font-semibold px-2.5 py-1 rounded-full">
+                        หมวดหมู่หลัก
+                      </span>
+                      <button
+                        onClick={() => handleOpenEditCategory(c)}
+                        className="text-xs bg-white hover:bg-gray-100 text-gray-700 border px-3 py-1 rounded-xl font-medium transition shadow-sm"
+                      >
+                        ✏️ แก้ไขชื่อ
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1368,6 +1460,227 @@ export default function AdminDashboard() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* Modal 1: แก้ไขข้อมูล E-Book (ตามข้อ 3 ในใบงาน) */}
+        {/* ======================================================== */}
+        {editingBook && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-lg w-full p-6 md:p-8 shadow-2xl border border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
+                ✏️ แก้ไขข้อมูล E-Book #{editingBook.ebook_id}
+              </h3>
+              <p className="text-xs text-gray-500 mb-6">ปรับเปลี่ยนชื่อหนังสือ ราคา ผู้แต่ง และหมวดหมู่</p>
+
+              <form onSubmit={handleSaveEditBook} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ชื่อหนังสือ</label>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">ราคา (บาท)</label>
+                    <input
+                      type="number"
+                      value={editPrice}
+                      onChange={(e) => setEditPrice(e.target.value)}
+                      className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">หมวดหมู่</label>
+                    <select
+                      value={editCategoryId}
+                      onChange={(e) => setEditCategoryId(e.target.value)}
+                      className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    >
+                      {categories.map((c) => (
+                        <option key={c.category_id} value={c.category_id}>{c.category_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ผู้แต่ง</label>
+                  <input
+                    type="text"
+                    value={editAuthor}
+                    onChange={(e) => setEditAuthor(e.target.value)}
+                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">คำอธิบาย</label>
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    rows={2}
+                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingBook(null)}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-xs transition"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm"
+                  >
+                    บันทึกการแก้ไข
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* Modal 2: แก้ไขชื่อหมวดหมู่ (ตามข้อ 3 ในใบงาน) */}
+        {/* ======================================================== */}
+        {editingCategory && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100">
+              <h3 className="text-base font-bold text-gray-900 mb-1">
+                🏷️ แก้ไขชื่อหมวดหมู่ #{editingCategory.category_id}
+              </h3>
+              <p className="text-xs text-gray-500 mb-4">เปลี่ยนชื่อหมวดหมู่สำหรับจัดกลุ่มหนังสือ E-Book</p>
+
+              <form onSubmit={handleSaveEditCategory} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ชื่อหมวดหมู่ใหม่</label>
+                  <input
+                    type="text"
+                    value={editCategoryName}
+                    onChange={(e) => setEditCategoryName(e.target.value)}
+                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCategory(null)}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 rounded-xl text-xs transition"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-xs transition shadow-sm"
+                  >
+                    บันทึก
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* Modal 3: ตรวจสอบหลักฐานสลิปจำลอง (ตามข้อ 3 ในใบงาน) */}
+        {/* ======================================================== */}
+        {viewingSlipOrder && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+            <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-100 animate-scaleUp">
+              {/* Slip Card Header */}
+              <div className="bg-gradient-to-r from-emerald-600 to-teal-600 p-6 text-white text-center">
+                <span className="text-3xl block mb-1">🧾</span>
+                <h3 className="text-base font-bold">สลิปการโอนเงิน (จำลองการชำระเงิน)</h3>
+                <p className="text-[11px] text-emerald-100">ระบบจำลองการตรวจสอบหลักฐานคำสั่งซื้อ ตามเกณฑ์ข้อ 3 ในใบงาน</p>
+              </div>
+
+              {/* Slip Details Body */}
+              <div className="p-6 space-y-3 text-xs">
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
+                  <span className="text-gray-400">รหัสคำสั่งซื้อ:</span>
+                  <span className="font-mono font-bold text-gray-800">#{viewingSlipOrder.order_id}</span>
+                </div>
+
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
+                  <span className="text-gray-400">อีเมลผู้ซื้อ:</span>
+                  <span className="font-semibold text-gray-900">{viewingSlipOrder.customer_email}</span>
+                </div>
+
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
+                  <span className="text-gray-400">วันที่ทำรายการ:</span>
+                  <span className="text-gray-700">{new Date(viewingSlipOrder.created_at).toLocaleString('th-TH')}</span>
+                </div>
+
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
+                  <span className="text-gray-400">ช่องทางชำระเงิน:</span>
+                  <span className="font-medium text-indigo-700">QR Code พร้อมเพย์ (จำลอง)</span>
+                </div>
+
+                <div className="flex justify-between items-center py-1.5 border-b border-gray-100">
+                  <span className="text-gray-400">สถานะปัจจุบัน:</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    viewingSlipOrder.status === 'ยืนยันแล้ว' ? 'bg-emerald-100 text-emerald-700' :
+                    viewingSlipOrder.status === 'รอชำระ' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                  }`}>
+                    {viewingSlipOrder.status}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50 rounded-2xl p-4 mt-2">
+                  <span className="text-gray-400 block mb-1">รายการหนังสือที่สั่งซื้อ:</span>
+                  <p className="font-semibold text-gray-800">{viewingSlipOrder.items_summary}</p>
+                  <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-200">
+                    <span className="font-bold text-gray-700">ยอดเงินรวม:</span>
+                    <span className="text-lg font-black text-emerald-600">฿{Number(viewingSlipOrder.total_amount).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* ปุ่มจัดการอนุมัติคำสั่งซื้อ */}
+                <div className="pt-3 space-y-2">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        handleChangeOrderStatus(viewingSlipOrder.order_id, 'ยืนยันแล้ว')
+                        setViewingSlipOrder(null)
+                      }}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1 shadow-sm"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      อนุมัติ (ยืนยันแล้ว)
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleChangeOrderStatus(viewingSlipOrder.order_id, 'ยกเลิก')
+                        setViewingSlipOrder(null)
+                      }}
+                      className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1 shadow-sm"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      ปฏิเสธ (ยกเลิก)
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setViewingSlipOrder(null)}
+                    className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 rounded-xl text-xs transition"
+                  >
+                    ปิดหน้าต่าง
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
