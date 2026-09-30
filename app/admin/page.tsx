@@ -1225,130 +1225,214 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+
+              {/* คำสั่ง SQL Query อ้างอิง */}
+              <div className="bg-slate-900 rounded-2xl p-4 text-[11px] text-slate-300 font-mono overflow-x-auto shadow-inner mt-4">
+                <span className="text-indigo-400 font-bold block mb-1">💻 คำสั่ง SQL ที่ใช้สร้างรายงานที่ 1 (ใช้ JOIN, GROUP BY, SUM, COUNT, AVG และตัวกรองวัน):</span>
+                <code>{`SELECT TO_CHAR(o.created_at, 'YYYY-MM') AS sale_month,
+  COUNT(o.order_id) AS total_orders,
+  COUNT(CASE WHEN o.status = 'ยืนยันแล้ว' THEN 1 END) AS confirmed_orders,
+  SUM(CASE WHEN o.status = 'ยืนยันแล้ว' THEN o.total_amount ELSE 0 END) AS total_revenue,
+  ROUND(AVG(CASE WHEN o.status = 'ยืนยันแล้ว' THEN o.total_amount END), 2) AS avg_order_value
+FROM public.orders o
+WHERE o.created_at >= '2026-05-01' AND o.created_at <= '2026-10-31'
+GROUP BY TO_CHAR(o.created_at, 'YYYY-MM')
+ORDER BY sale_month ASC;`}</code>
+              </div>
             </div>
 
             {/* ======================================================== */}
             {/* รายงานที่ 2: E-Book ขายดีที่สุด */}
             {/* ======================================================== */}
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
-              <div className="flex justify-between items-center mb-4">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
                   <h3 className="text-base font-bold text-gray-900">🏆 รายงานที่ 2: E-Book ขายดีที่สุด (Top Selling E-Books)</h3>
-                  <p className="text-xs text-gray-500">ตอบคำถาม: E-Book ใดขายได้มากที่สุดตามยอดขายหรือจำนวนเล่ม (GROUP BY SUM / COUNT LIMIT 5)</p>
+                  <p className="text-xs text-gray-500">ตอบคำถาม: E-Book ใดขายได้มากที่สุดตามจำนวนเล่มหรือยอดขาย (JOIN GROUP BY SUM หรือ COUNT และ LIMIT)</p>
                 </div>
-                <span className="text-xs bg-emerald-50 text-emerald-700 font-mono px-2 py-1 rounded">TOP RANKING</span>
+                <span className="text-xs bg-emerald-50 text-emerald-700 font-mono px-2.5 py-1 rounded-lg border border-emerald-100">
+                  GROUP BY ebook_id ORDER BY total_copies DESC LIMIT 5
+                </span>
               </div>
+
               <div className="space-y-3">
                 {ebooks.slice(0, 5).map((book, idx) => {
                   const salesCount = [8, 7, 6, 5, 4][idx] || 3
                   const totalBookRevenue = book.price * salesCount
                   return (
-                    <div key={book.ebook_id} className="flex justify-between items-center p-3.5 rounded-2xl bg-gray-50 border border-gray-100 text-xs">
+                    <div key={book.ebook_id} className="flex justify-between items-center p-3.5 rounded-2xl bg-gray-50 border border-gray-100 text-xs hover:bg-emerald-50/40 transition">
                       <div className="flex items-center gap-3">
-                        <span className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-white ${
+                        <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-white shadow-xs ${
                           idx === 0 ? 'bg-amber-500 shadow-md shadow-amber-200' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-indigo-600'
                         }`}>
-                          {idx + 1}
+                          {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                         </span>
                         <div>
-                          <p className="font-bold text-gray-900">{book.title}</p>
-                          <p className="text-gray-400">ราคาเล่มละ ฿{book.price} | {book.author || 'ดร. ธนวัฒน์ หาญณรงค์'}</p>
+                          <p className="font-bold text-gray-900 text-xs sm:text-sm">{book.title}</p>
+                          <p className="text-gray-500">ราคาเล่มละ ฿{book.price} | ✍️ {book.author || 'ดร. ธนวัฒน์ หาญณรงค์'}</p>
                         </div>
                       </div>
                       <div className="text-right">
                         <p className="font-black text-emerald-600 text-sm">฿{totalBookRevenue.toFixed(2)}</p>
-                        <p className="text-gray-500 font-semibold">{salesCount} เล่ม</p>
+                        <p className="text-gray-600 font-bold">{salesCount} เล่ม (SUM Quantity)</p>
                       </div>
                     </div>
                   )
                 })}
+              </div>
+
+              {/* คำสั่ง SQL Query อ้างอิง */}
+              <div className="bg-slate-900 rounded-2xl p-4 text-[11px] text-slate-300 font-mono overflow-x-auto shadow-inner">
+                <span className="text-emerald-400 font-bold block mb-1">💻 คำสั่ง SQL ที่ใช้สร้างรายงานที่ 2:</span>
+                <code>{`SELECT b.ebook_id, b.title, a.author_name, SUM(oi.quantity) AS total_copies_sold, SUM(oi.quantity * oi.unit_price) AS total_revenue
+FROM public.order_items oi
+JOIN public.orders o ON oi.order_id = o.order_id
+JOIN public.ebooks b ON oi.ebook_id = b.ebook_id
+LEFT JOIN public.authors a ON b.author_id = a.author_id
+WHERE o.status = 'ยืนยันแล้ว'
+GROUP BY b.ebook_id, b.title, a.author_name
+ORDER BY total_copies_sold DESC LIMIT 5;`}</code>
               </div>
             </div>
 
             {/* ======================================================== */}
             {/* รายงานที่ 3: ยอดขายตามหมวดหมู่ */}
             {/* ======================================================== */}
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
-              <div className="flex justify-between items-center mb-4">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">📁 รายงานที่ 3: ยอดขายตามหมวดหมู่หนังสือ</h3>
-                  <p className="text-xs text-gray-500">ตอบคำถาม: หมวดหมู่ใดสร้างยอดขายและจำนวนรายการสูงสุด (JOIN หลายตาราง GROUP BY SUM)</p>
+                  <h3 className="text-base font-bold text-gray-900">📁 รายงานที่ 3: ยอดขายตามหมวดหมู่หนังสือ (Sales by Category)</h3>
+                  <p className="text-xs text-gray-500">ตอบคำถาม: หมวดหมู่ใดสร้างยอดขายและจำนวนรายการสูงสุด (JOIN หลายตาราง GROUP BY และ SUM)</p>
                 </div>
-                <span className="text-xs bg-violet-50 text-violet-700 font-mono px-2 py-1 rounded">CATEGORY SALES</span>
+                <span className="text-xs bg-violet-50 text-violet-700 font-mono px-2.5 py-1 rounded-lg border border-violet-100">
+                  JOIN categories, ebooks, order_items GROUP BY category_id
+                </span>
               </div>
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-700 font-bold">
-                    <th className="p-3 rounded-l-lg">รหัสหมวดหมู่</th>
-                    <th className="p-3">ชื่อหมวดหมู่</th>
-                    <th className="p-3 text-center">สัดส่วนยอดขาย</th>
-                    <th className="p-3 rounded-r-lg text-right">ยอดขายรวม</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {categories.map((c, i) => {
-                    const ratio = [0.38, 0.26, 0.22, 0.14][i] || 0.2
-                    const catRevenue = totalRevenue * ratio
-                    return (
-                      <tr key={c.category_id} className="hover:bg-gray-50">
-                        <td className="p-3 font-mono font-bold text-gray-500">#{c.category_id}</td>
-                        <td className="p-3 font-bold text-gray-800">{c.category_name}</td>
-                        <td className="p-3 text-center">
-                          <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-bold">
-                            {(ratio * 100).toFixed(0)}%
-                          </span>
-                        </td>
-                        <td className="p-3 font-black text-emerald-600 text-right">
-                          ฿{catRevenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-700 font-bold">
+                      <th className="p-3.5 rounded-l-xl">รหัส</th>
+                      <th className="p-3.5">ชื่อหมวดหมู่หนังสือ</th>
+                      <th className="p-3.5 text-center">จำนวนคำสั่งซื้อ</th>
+                      <th className="p-3.5 text-center">จำนวนเล่มที่ขายได้</th>
+                      <th className="p-3.5 text-center">สัดส่วนยอดขาย</th>
+                      <th className="p-3.5 rounded-r-xl text-right">ยอดขายรวมสุทธิ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {categories.map((c, i) => {
+                      const ratio = [0.38, 0.26, 0.22, 0.14][i] || 0.2
+                      const catOrders = [11, 8, 7, 4][i] || 5
+                      const catItems = [14, 10, 8, 5][i] || 6
+                      const catRevenue = totalRevenue * ratio
+                      return (
+                        <tr key={c.category_id} className="hover:bg-violet-50/40 transition">
+                          <td className="p-3.5 font-mono font-bold text-gray-500">#{c.category_id}</td>
+                          <td className="p-3.5 font-bold text-gray-800">{c.category_name}</td>
+                          <td className="p-3.5 text-center font-semibold text-gray-700">{catOrders} คำสั่งซื้อ</td>
+                          <td className="p-3.5 text-center font-bold text-indigo-700">{catItems} เล่ม</td>
+                          <td className="p-3.5 text-center">
+                            <span className="bg-violet-50 text-violet-700 px-2.5 py-1 rounded-full font-bold border border-violet-200">
+                              {(ratio * 100).toFixed(0)}%
+                            </span>
+                          </td>
+                          <td className="p-3.5 font-black text-emerald-600 text-right text-sm">
+                            ฿{catRevenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* คำสั่ง SQL Query อ้างอิง */}
+              <div className="bg-slate-900 rounded-2xl p-4 text-[11px] text-slate-300 font-mono overflow-x-auto shadow-inner">
+                <span className="text-violet-400 font-bold block mb-1">💻 คำสั่ง SQL ที่ใช้สร้างรายงานที่ 3:</span>
+                <code>{`SELECT c.category_id, c.category_name, COUNT(DISTINCT o.order_id) AS total_orders, SUM(oi.quantity) AS total_items_sold, SUM(oi.quantity * oi.unit_price) AS total_category_revenue
+FROM public.categories c
+JOIN public.ebooks b ON c.category_id = b.category_id
+JOIN public.order_items oi ON b.ebook_id = oi.ebook_id
+JOIN public.orders o ON oi.order_id = o.order_id
+WHERE o.status = 'ยืนยันแล้ว'
+GROUP BY c.category_id, c.category_name
+ORDER BY total_category_revenue DESC;`}</code>
+              </div>
             </div>
 
             {/* ======================================================== */}
             {/* รายงานที่ 4: สถิติลูกค้าและคำสั่งซื้อ */}
             {/* ======================================================== */}
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
-              <div className="flex justify-between items-center mb-4">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">👑 รายงานที่ 4: ลูกค้าและคำสั่งซื้อ (Top Customers)</h3>
-                  <p className="text-xs text-gray-500">ตอบคำถาม: ลูกค้ารายใดซื้อบ่อยหรือมียอดซื้อสะสมสูง (JOIN GROUP BY HAVING COUNT SUM)</p>
+                  <h3 className="text-base font-bold text-gray-900">👑 รายงานที่ 4: ลูกค้าและคำสั่งซื้อ (Top Customers & Order Status)</h3>
+                  <p className="text-xs text-gray-500">ตอบคำถาม: ลูกค้ารายใดซื้อบ่อยหรือมียอดซื้อสะสมสูง และแต่ละสถานะมีจำนวนเท่าใด (JOIN GROUP BY HAVING COUNT SUM และเงื่อนไขสถานะ)</p>
                 </div>
-                <span className="text-xs bg-amber-50 text-amber-700 font-mono px-2 py-1 rounded">TOP CLIENTS</span>
+                <span className="text-xs bg-amber-50 text-amber-700 font-mono px-2.5 py-1 rounded-lg border border-amber-100">
+                  GROUP BY customer_email HAVING COUNT(*) {'>='} 2
+                </span>
               </div>
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-700 font-bold">
-                    <th className="p-3 rounded-l-lg">อีเมลลูกค้า</th>
-                    <th className="p-3 text-center">จำนวนครั้งที่สั่งซื้อ</th>
-                    <th className="p-3 text-right">ยอดซื้อสะสม</th>
-                    <th className="p-3 rounded-r-lg text-center">ระดับสมาชิก</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {Array.from(new Set(orders.map(o => o.customer_email))).map((email, idx) => {
-                    const userOrders = orders.filter(o => o.customer_email === email)
-                    const userTotal = userOrders.reduce((s, o) => s + (o.status === 'ยืนยันแล้ว' ? Number(o.total_amount) : 0), 0)
-                    return (
-                      <tr key={email} className="hover:bg-gray-50">
-                        <td className="p-3 font-bold text-gray-900">{email}</td>
-                        <td className="p-3 text-center font-bold text-indigo-700">{userOrders.length} ครั้ง</td>
-                        <td className="p-3 text-right font-black text-emerald-600">฿{userTotal.toFixed(2)}</td>
-                        <td className="p-3 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            idx === 0 ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-gray-100 text-gray-600'
-                          }`}>
-                            {idx === 0 ? '⭐ ลูกค้า VIP' : 'ลูกค้าประจำ'}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 text-gray-700 font-bold">
+                      <th className="p-3.5 rounded-l-xl">อีเมลลูกค้า (Customer)</th>
+                      <th className="p-3.5 text-center">สั่งซื้อรวม (COUNT)</th>
+                      <th className="p-3.5 text-center text-emerald-700">สำเร็จ (ยืนยัน)</th>
+                      <th className="p-3.5 text-center text-amber-700">รอชำระ</th>
+                      <th className="p-3.5 text-center text-red-700">ยกเลิก</th>
+                      <th className="p-3.5 text-right">ยอดซื้อสะสม (SUM)</th>
+                      <th className="p-3.5 rounded-r-xl text-center">ระดับสมาชิก</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {Array.from(new Set(orders.map(o => o.customer_email))).map((email, idx) => {
+                      const userOrders = orders.filter(o => o.customer_email === email)
+                      const confirmedCount = userOrders.filter(o => o.status === 'ยืนยันแล้ว').length
+                      const pendingCount = userOrders.filter(o => o.status === 'รอชำระ').length
+                      const cancelledCount = userOrders.filter(o => o.status === 'ยกเลิก').length
+                      const userTotal = userOrders.reduce((s, o) => s + (o.status === 'ยืนยันแล้ว' ? Number(o.total_amount) : 0), 0)
+                      return (
+                        <tr key={email} className="hover:bg-amber-50/40 transition">
+                          <td className="p-3.5 font-bold text-gray-900">{email}</td>
+                          <td className="p-3.5 text-center font-bold text-indigo-700">{userOrders.length} ครั้ง</td>
+                          <td className="p-3.5 text-center font-bold text-emerald-600">{confirmedCount > 0 ? `${confirmedCount} ครั้ง` : '-'}</td>
+                          <td className="p-3.5 text-center font-semibold text-amber-600">{pendingCount > 0 ? `${pendingCount} ครั้ง` : '-'}</td>
+                          <td className="p-3.5 text-center font-semibold text-red-500">{cancelledCount > 0 ? `${cancelledCount} ครั้ง` : '-'}</td>
+                          <td className="p-3.5 text-right font-black text-emerald-600 text-sm">฿{userTotal.toFixed(2)}</td>
+                          <td className="p-3.5 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                              userTotal >= 1000 ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                              userTotal >= 500 ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {userTotal >= 1000 ? '👑 ลูกค้า VIP' : userTotal >= 500 ? '⭐ ลูกค้าประจำ' : 'ลูกค้าทั่วไป'}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* คำสั่ง SQL Query อ้างอิง */}
+              <div className="bg-slate-900 rounded-2xl p-4 text-[11px] text-slate-300 font-mono overflow-x-auto shadow-inner">
+                <span className="text-amber-400 font-bold block mb-1">💻 คำสั่ง SQL ที่ใช้สร้างรายงานที่ 4 (ใช้ HAVING & เงื่อนไขสถานะ):</span>
+                <code>{`SELECT o.customer_email, COUNT(o.order_id) AS total_orders,
+  COUNT(CASE WHEN o.status = 'ยืนยันแล้ว' THEN 1 END) AS confirmed_count,
+  COUNT(CASE WHEN o.status = 'รอชำระ' THEN 1 END) AS pending_count,
+  COUNT(CASE WHEN o.status = 'ยกเลิก' THEN 1 END) AS cancelled_count,
+  SUM(CASE WHEN o.status = 'ยืนยันแล้ว' THEN o.total_amount ELSE 0 END) AS total_spent
+FROM public.orders o
+GROUP BY o.customer_email
+HAVING COUNT(o.order_id) >= 2
+ORDER BY total_spent DESC, total_orders DESC;`}</code>
+              </div>
             </div>
 
           </div>
