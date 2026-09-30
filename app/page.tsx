@@ -18,6 +18,8 @@ type Ebook = {
   category_id: number
   stock_status: string
   is_active?: boolean
+  approval_status?: 'pending' | 'approved' | 'rejected'
+  rejection_reason?: string
   rating?: number
   total_reviews?: number
 }
@@ -126,29 +128,76 @@ export default function Home() {
       const { data, error } = await supabase
         .from('ebooks')
         .select('*')
-        .eq('is_active', true)
         .order('ebook_id', { ascending: true })
 
-      if (data && data.length > 0) {
-        // กรองเฉพาะหนังสือที่อนุมัติแล้วเท่านั้น (ไม่แสดง pending หรือ rejected บนหน้าร้าน)
-        const approvedOnly = data.filter(b => b.approval_status !== 'pending' && b.approval_status !== 'rejected')
-        const formatted: Ebook[] = approvedOnly.map((b) => {
-          const meta = UNIQUE_EBOOKS_METADATA[b.ebook_id]
-          return {
-            ...b,
-            title: meta?.title || b.title,
-            author: meta?.author || b.author || 'ดร. ธนวัฒน์ หาญณรงค์',
-            price: Number(b.price || meta?.price || 290),
-            description: meta?.description || b.description,
-            cover_image: meta?.cover_image || b.cover_image,
-            category_id: meta?.category_id || b.category_id || 1,
-            stock_status: b.stock_status || 'พร้อมจำหน่าย',
-            rating: Number(b.rating || meta?.rating || 5.0),
-            total_reviews: Number(b.total_reviews || meta?.total_reviews || 1)
-          }
-        })
-        setEbooks(formatted)
+      // ดึงข้อมูลหนังสือที่ส่งมา และ override จาก LocalStorage
+      let localSubmitted: any[] = []
+      try {
+        localSubmitted = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+      } catch (e) {
+        // ignore
       }
+
+      let approvalOverrides: Record<string, any> = {}
+      try {
+        approvalOverrides = JSON.parse(localStorage.getItem('gusso_book_approval_overrides') || '{}')
+      } catch (e) {
+        // ignore
+      }
+
+      let allBooks: Ebook[] = (data || []).map((b) => {
+        const meta = UNIQUE_EBOOKS_METADATA[b.ebook_id]
+        const override = approvalOverrides[b.ebook_id]
+        return {
+          ...b,
+          title: meta?.title || b.title,
+          author: meta?.author || b.author || 'ดร. ธนวัฒน์ หาญณรงค์',
+          price: Number(b.price || meta?.price || 290),
+          description: meta?.description || b.description,
+          cover_image: meta?.cover_image || b.cover_image,
+          category_id: meta?.category_id || b.category_id || 1,
+          stock_status: b.stock_status || 'พร้อมจำหน่าย',
+          approval_status: override?.approval_status || b.approval_status || 'approved',
+          is_active: override?.is_active !== undefined ? override.is_active : (b.is_active !== false),
+          rating: Number(b.rating || meta?.rating || 5.0),
+          total_reviews: Number(b.total_reviews || meta?.total_reviews || 1)
+        }
+      })
+
+      // รวมหนังสือใหม่จาก LocalStorage ที่ผ่านการอนุมัติแล้ว
+      localSubmitted.forEach(lb => {
+        const override = approvalOverrides[lb.ebook_id]
+        const finalStatus = override?.approval_status || lb.approval_status || 'pending'
+        const finalActive = override?.is_active !== undefined ? override.is_active : (lb.is_active !== undefined ? lb.is_active : false)
+        const existingIdx = allBooks.findIndex(b => b.ebook_id === lb.ebook_id || (b.title && b.title === lb.title))
+        if (existingIdx >= 0) {
+          allBooks[existingIdx] = {
+            ...allBooks[existingIdx],
+            ...lb,
+            approval_status: finalStatus,
+            is_active: finalActive
+          }
+        } else {
+          allBooks.push({
+            ebook_id: lb.ebook_id,
+            title: lb.title,
+            author: lb.author || lb.submitted_by_name || 'นักเขียนอิสระ',
+            price: Number(lb.price || 290),
+            category_id: Number(lb.category_id || 1),
+            description: lb.description || '',
+            cover_image: lb.cover_image || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80',
+            stock_status: 'พร้อมจำหน่าย',
+            approval_status: finalStatus,
+            is_active: finalActive,
+            rating: lb.rating || 5.0,
+            total_reviews: lb.total_reviews || 1
+          })
+        }
+      })
+
+      // กรองเฉพาะหนังสือที่ได้รับ "อนุมัติ" และเปิดจำหน่าย (is_active = true) เท่านั้น
+      const approvedOnly = allBooks.filter(b => b.approval_status === 'approved' && b.is_active === true)
+      setEbooks(approvedOnly)
     } catch (e) {
       console.error(e)
     } finally {

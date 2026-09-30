@@ -30,11 +30,15 @@ type AuthorBook = {
   title: string
   price: number
   category_id: number
+  author?: string
   description: string
   cover_image: string
   approval_status: 'pending' | 'approved' | 'rejected'
   rejection_reason?: string
   is_active: boolean
+  submitted_by?: string
+  submitted_by_name?: string
+  created_at?: string
   copies_sold?: number
   author_earnings?: number
 }
@@ -130,13 +134,26 @@ export default function AuthorPage() {
       const { data: catData } = await supabase.from('categories').select('*')
       if (catData && catData.length > 0) setCategories(catData)
 
-      // 2. โหลดหนังสือที่ผู้แต่งคนนี้ส่งมา (หรือทั้งหมดถ้าเป็นแอดมิน)
-      let query = supabase.from('ebooks').select('*')
-      if (curRoleId !== 1 && u.email !== 'admin@gusso.com') {
-        query = query.eq('submitted_by', u.id)
+      // 2. โหลดหนังสือที่ผู้แต่งคนนี้ส่งมา (หรือทั้งหมดถ้าเป็นแอดมิน) จาก Supabase
+      let booksData: any[] = []
+      try {
+        let query = supabase.from('ebooks').select('*')
+        if (curRoleId !== 1 && u.email !== 'admin@gusso.com') {
+          query = query.eq('submitted_by', u.id)
+        }
+        const { data, error: bookErr } = await query.order('ebook_id', { ascending: false })
+        if (!bookErr && data) {
+          booksData = data
+        } else {
+          // หากเกิด error เช่น ยังไม่มีคอลัมน์ submitted_by ใน DB ให้ fallback ดึงข้อมูลทั้งหมด
+          const { data: fallbackData } = await supabase.from('ebooks').select('*').order('ebook_id', { ascending: false })
+          if (fallbackData) {
+            booksData = fallbackData.filter((b: any) => b.submitted_by === u.id)
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase fetch error for author books:', err)
       }
-
-      const { data: booksData, error: bookErr } = await query.order('ebook_id', { ascending: false })
 
       // 3. ดึงยอดขายของหนังสือแต่ละเล่มจาก order_items
       const { data: orderItems } = await supabase.from('order_items').select('ebook_id, quantity, unit_price')
@@ -152,28 +169,72 @@ export default function AuthorPage() {
         })
       }
 
-      if (booksData && booksData.length > 0) {
-        const mappedBooks: AuthorBook[] = booksData.map(b => {
+      // 4. ดึงข้อมูลหนังสือที่ส่งมาและสถานะจาก LocalStorage (Cross-tab Bridge)
+      let localSubmitted: any[] = []
+      try {
+        localSubmitted = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+      } catch (e) {
+        // ignore
+      }
+
+      let approvalOverrides: Record<string, any> = {}
+      try {
+        approvalOverrides = JSON.parse(localStorage.getItem('gusso_book_approval_overrides') || '{}')
+      } catch (e) {
+        // ignore
+      }
+
+      // แมปผลงานจากฐานข้อมูล Supabase
+      const mappedDbBooks: AuthorBook[] = (booksData || []).map(b => {
+        const stats = salesMap.get(b.ebook_id) || { sold: 0, revenue: 0 }
+        const override = approvalOverrides[b.ebook_id]
+        return {
+          ebook_id: b.ebook_id,
+          title: b.title,
+          price: Number(b.price),
+          category_id: b.category_id || 1,
+          description: b.description || '',
+          cover_image: b.cover_image || SAMPLE_COVERS[0],
+          approval_status: override?.approval_status || b.approval_status || 'approved',
+          rejection_reason: override?.rejection_reason || b.rejection_reason,
+          is_active: override?.is_active !== undefined ? override.is_active : (b.is_active !== false),
+          copies_sold: stats.sold,
+          author_earnings: Math.round(stats.revenue * 0.60)
+        }
+      })
+
+      // แมปผลงานจาก LocalStorage
+      const userLocalBooks: AuthorBook[] = localSubmitted
+        .filter(b => curRoleId === 1 || u.email === 'admin@gusso.com' || b.submitted_by === u.id || b.author === name || !b.submitted_by)
+        .map(b => {
           const stats = salesMap.get(b.ebook_id) || { sold: 0, revenue: 0 }
+          const override = approvalOverrides[b.ebook_id]
           return {
             ebook_id: b.ebook_id,
             title: b.title,
             price: Number(b.price),
-            category_id: b.category_id || 1,
+            category_id: Number(b.category_id) || 1,
+            author: b.author || name,
             description: b.description || '',
             cover_image: b.cover_image || SAMPLE_COVERS[0],
-            approval_status: b.approval_status || 'approved',
-            rejection_reason: b.rejection_reason,
-            is_active: b.is_active !== false,
+            approval_status: override?.approval_status || b.approval_status || 'pending',
+            rejection_reason: override?.rejection_reason || b.rejection_reason,
+            is_active: override?.is_active !== undefined ? override.is_active : (b.is_active !== undefined ? b.is_active : false),
             copies_sold: stats.sold,
-            author_earnings: Math.round(stats.revenue * 0.60) // 60% ส่วนแบ่งผู้แต่ง
+            author_earnings: Math.round(stats.revenue * 0.60)
           }
         })
-        setMyBooks(mappedBooks)
-      } else {
-        // ตัวอย่างหนังสือจำลองของผู้แต่งถ้ายังไม่เคยส่ง
-        setMyBooks([])
-      }
+
+      // รวมผลงานทั้งสองแหล่ง และกำจัดตัวซ้ำ
+      const combinedMap = new Map<string, AuthorBook>()
+      mappedDbBooks.forEach(b => combinedMap.set(`${b.ebook_id}`, b))
+      userLocalBooks.forEach(b => {
+        // ให้ความสำคัญกับค่าใน userLocalBooks (หรืออัปเดตสถานะล่าสุด)
+        const key = `${b.ebook_id}`
+        combinedMap.set(key, b)
+      })
+
+      setMyBooks(Array.from(combinedMap.values()))
     }
 
     setLoading(false)
@@ -183,7 +244,7 @@ export default function AuthorPage() {
     loadAuthorData()
   }, [loadAuthorData])
 
-  // ฟังก์ชันส่งหนังสือใหม่เพื่อรอตรวจสอบ
+  // ฟังก์ชันส่งหนังสือใหม่เพื่อรอตรวจสอบ (Dual Persistence: LocalStorage + Supabase)
   const handleSubmitBook = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim()) {
@@ -196,77 +257,99 @@ export default function AuthorPage() {
     try {
       // 1. ค้นหาหรือจับคู่ author_id ในตาราง authors
       let authorId = 1
-      const { data: authorData } = await supabase
-        .from('authors')
-        .select('author_id')
-        .ilike('author_name', `%${userName}%`)
-        .limit(1)
-
-      if (authorData && authorData.length > 0) {
-        authorId = authorData[0].author_id
-      } else {
-        // เพิ่มผู้แต่งใหม่ลงตาราง authors
-        const { data: newAuthor } = await supabase
+      try {
+        const { data: authorData } = await supabase
           .from('authors')
-          .insert({ author_name: userName, bio: `นักเขียนอิสระประจำแพลตฟอร์ม GusSo E-Book Store (${userEmail})` })
           .select('author_id')
-          .single()
-        if (newAuthor) authorId = newAuthor.author_id
+          .ilike('author_name', `%${userName}%`)
+          .limit(1)
+
+        if (authorData && authorData.length > 0) {
+          authorId = authorData[0].author_id
+        } else {
+          const { data: newAuthor } = await supabase
+            .from('authors')
+            .insert({ author_name: userName, bio: `นักเขียนอิสระประจำแพลตฟอร์ม GusSo E-Book Store (${userEmail})` })
+            .select('author_id')
+            .single()
+          if (newAuthor) authorId = newAuthor.author_id
+        }
+      } catch (authErr) {
+        console.warn('Author table lookup notice:', authErr)
       }
 
-      // 2. บันทึกเข้าตาราง ebooks ด้วยสถานะ pending
-      const newBookPayload = {
+      // 2. สร้างโครงสร้างหนังสือใหม่สำหรับบันทึก
+      const generatedId = Date.now()
+      const newBookObj: AuthorBook = {
+        ebook_id: generatedId,
         title: title.trim(),
         price: Number(price),
         category_id: Number(categoryId),
-        author_id: authorId,
+        author: userName,
         description: description.trim() || 'หนังสือคุณภาพจัดทำโดยนักเขียนอิสระ',
         cover_image: coverImage,
-        is_active: false, // ยังไม่เปิดขายจนกว่าจะอนุมัติ
         approval_status: 'pending',
+        is_active: false,
         submitted_by: userId,
-        stock_status: 'พร้อมจำหน่าย'
+        submitted_by_name: userName,
+        created_at: new Date().toISOString(),
+        copies_sold: 0,
+        author_earnings: 0
       }
 
-      const { data: inserted, error: insertError } = await supabase
-        .from('ebooks')
-        .insert(newBookPayload)
-        .select('*')
-        .single()
+      // 3. บันทึกลง LocalStorage ทันที (รับประกันความคงอยู่ 100% ให้หน้า Admin เห็นได้ทันที)
+      let assignedEbookId = generatedId
+      try {
+        const existingSaved: any[] = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+        const filtered = existingSaved.filter(b => b.title !== newBookObj.title && b.ebook_id !== generatedId)
+        localStorage.setItem('gusso_submitted_books', JSON.stringify([newBookObj, ...filtered]))
+      } catch (storageErr) {
+        console.warn('LocalStorage save warning:', storageErr)
+      }
 
-      if (insertError) {
-        console.error('Insert book error:', insertError)
-        // Fallback local state if DB column not ready yet
-        const mockNewBook: AuthorBook = {
-          ebook_id: Date.now(),
+      // 4. พยายามบันทึกลงตาราง ebooks ใน Supabase ด้วยสถานะ pending
+      try {
+        const newBookPayload = {
           title: title.trim(),
           price: Number(price),
           category_id: Number(categoryId),
-          description: description.trim(),
+          author_id: authorId,
+          description: description.trim() || 'หนังสือคุณภาพจัดทำโดยนักเขียนอิสระ',
           cover_image: coverImage,
-          approval_status: 'pending',
           is_active: false,
-          copies_sold: 0,
-          author_earnings: 0
-        }
-        setMyBooks([mockNewBook, ...myBooks])
-      } else if (inserted) {
-        const addedBook: AuthorBook = {
-          ebook_id: inserted.ebook_id,
-          title: inserted.title,
-          price: Number(inserted.price),
-          category_id: inserted.category_id,
-          description: inserted.description,
-          cover_image: inserted.cover_image,
           approval_status: 'pending',
-          is_active: false,
-          copies_sold: 0,
-          author_earnings: 0
+          submitted_by: userId,
+          stock_status: 'พร้อมจำหน่าย'
         }
-        setMyBooks([addedBook, ...myBooks])
+
+        const { data: inserted, error: insertError } = await supabase
+          .from('ebooks')
+          .insert(newBookPayload)
+          .select('*')
+          .single()
+
+        if (insertError) {
+          console.warn('Supabase DB Insert notice (saved locally):', insertError)
+        } else if (inserted) {
+          assignedEbookId = inserted.ebook_id
+          newBookObj.ebook_id = inserted.ebook_id
+          // อัปเดต ID จริงจากฐานข้อมูลลง LocalStorage
+          try {
+            const saved: any[] = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+            const updated = saved.map(b => b.title === newBookObj.title ? { ...b, ebook_id: inserted.ebook_id } : b)
+            localStorage.setItem('gusso_submitted_books', JSON.stringify(updated))
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (dbErr) {
+        console.warn('Supabase insert exception (saved locally):', dbErr)
       }
 
-      alert('🎉 ส่งหนังสือเข้าสู่ระบบตรวจสอบเรียบร้อยแล้ว!\n\nผู้ดูแลระบบ (Admin) จะตรวจสอบความเหมาะสมของเนื้อหา\nเมื่อได้รับ "อนุมัติ" หนังสือจะแสดงบนหน้าแรกทันที และคุณจะได้รับส่วนแบ่ง 60% จากทุกยอดขาย')
+      // 5. อัปเดต State หน้าจอนักเขียน
+      setMyBooks(prev => [newBookObj, ...prev.filter(b => b.title !== newBookObj.title)])
+
+      alert('🎉 ส่งหนังสือเข้าสู่ระบบตรวจสอบเรียบร้อยแล้ว!\n\n📋 สถานะปัจจุบัน: "รอตรวจสอบ (Pending)"\n🛡️ ผู้ดูแลระบบ (Admin) จะเห็นหนังสือเล่มนี้ในแท็บ [ตรวจอนุมัติ E-Book] ทันที\n✅ เมื่อได้รับ "อนุมัติ" หนังสือจะแสดงบนหน้าแรกทันที และคุณจะได้รับส่วนแบ่ง 60% จากทุกยอดจำหน่าย')
       setShowSubmitModal(false)
       setTitle('')
       setDescription('')

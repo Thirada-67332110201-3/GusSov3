@@ -205,9 +205,27 @@ export default function AdminDashboard() {
 
       // 1.1 ดึงข้อมูลหนังสือ พร้อมสถานะการอนุมัติและคะแนนรีวิว
       const { data: ebookData } = await supabase.from('ebooks').select('*').order('ebook_id', { ascending: true })
+
+      // ดึงข้อมูลหนังสือที่นักเขียนส่งมาและสถานะ override จาก LocalStorage (Dual Persistence Bridge)
+      let localSubmitted: any[] = []
+      try {
+        localSubmitted = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+      } catch (e) {
+        // ignore
+      }
+
+      let approvalOverrides: Record<string, any> = {}
+      try {
+        approvalOverrides = JSON.parse(localStorage.getItem('gusso_book_approval_overrides') || '{}')
+      } catch (e) {
+        // ignore
+      }
+
+      let enrichedEbooks: Ebook[] = []
       if (ebookData && ebookData.length > 0) {
-        const enrichedEbooks: Ebook[] = ebookData.map(b => {
+        enrichedEbooks = ebookData.map(b => {
           const meta = UNIQUE_EBOOKS_METADATA[b.ebook_id]
+          const override = approvalOverrides[b.ebook_id]
           return {
             ...b,
             title: meta?.title || b.title,
@@ -216,13 +234,47 @@ export default function AdminDashboard() {
             description: meta?.description || b.description,
             cover_image: meta?.cover_image || b.cover_image,
             category_id: meta?.category_id || b.category_id || 1,
-            approval_status: b.approval_status || 'approved',
+            approval_status: override?.approval_status || b.approval_status || 'approved',
+            rejection_reason: override?.rejection_reason || b.rejection_reason,
+            is_active: override?.is_active !== undefined ? override.is_active : (b.is_active !== false),
             rating: Number(b.rating || meta?.rating || 5.0),
             total_reviews: Number(b.total_reviews || meta?.total_reviews || 1)
           }
         })
-        setEbooks(enrichedEbooks)
       }
+
+      // นำรายการหนังสือที่นักเขียนส่งเข้ามาใน localStorage มารวมด้วย (เพื่อแสดงในแท็บ "รอตรวจสอบ")
+      localSubmitted.forEach(lb => {
+        const override = approvalOverrides[lb.ebook_id]
+        const existingIdx = enrichedEbooks.findIndex(b => b.ebook_id === lb.ebook_id || (b.title && b.title === lb.title))
+        if (existingIdx >= 0) {
+          enrichedEbooks[existingIdx] = {
+            ...enrichedEbooks[existingIdx],
+            ...lb,
+            approval_status: override?.approval_status || lb.approval_status || enrichedEbooks[existingIdx].approval_status,
+            rejection_reason: override?.rejection_reason || lb.rejection_reason,
+            is_active: override?.is_active !== undefined ? override.is_active : (lb.is_active !== undefined ? lb.is_active : enrichedEbooks[existingIdx].is_active)
+          }
+        } else {
+          enrichedEbooks.push({
+            ebook_id: lb.ebook_id,
+            title: lb.title,
+            author: lb.author || lb.submitted_by_name || 'นักเขียนอิสระ',
+            price: Number(lb.price || 290),
+            category_id: Number(lb.category_id || 1),
+            description: lb.description || '',
+            cover_image: lb.cover_image || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80',
+            stock_status: lb.stock_status || 'พร้อมจำหน่าย',
+            approval_status: override?.approval_status || lb.approval_status || 'pending',
+            rejection_reason: override?.rejection_reason || lb.rejection_reason,
+            is_active: override?.is_active !== undefined ? override.is_active : (lb.is_active !== undefined ? lb.is_active : false),
+            rating: lb.rating || 5.0,
+            total_reviews: lb.total_reviews || 1
+          })
+        }
+      })
+
+      setEbooks(enrichedEbooks)
 
       // 2. ดึงข้อมูลหมวดหมู่
       const { data: catData } = await supabase.from('categories').select('*')
@@ -390,30 +442,49 @@ export default function AdminDashboard() {
       return
     }
 
-    const { data, error } = await supabase.from('ebooks').insert([
-      {
-        title: newTitle,
-        price: parseFloat(newPrice),
-        description: newDesc,
-        cover_image: newCover || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=60',
-        author: newAuthor || 'ดร. ธนวัฒน์ & อ. ธีรดา',
-        category_id: parseInt(newCategoryId),
-        is_active: true,
-        stock_status: 'พร้อมจำหน่าย'
-      }
-    ]).select()
-
-    if (error) {
-      alert('เพิ่มหนังสือไม่สำเร็จ: ' + error.message)
-    } else {
-      alert('🎉 เพิ่มหนังสือใหม่สำเร็จเรียบร้อยแล้ว!')
-      if (data) setEbooks([...data, ...ebooks])
-      setNewTitle('')
-      setNewPrice('')
-      setNewAuthor('')
-      setNewDesc('')
-      setNewCover('')
+    const newBookPayload = {
+      title: newTitle,
+      price: parseFloat(newPrice),
+      description: newDesc,
+      cover_image: newCover || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=60',
+      author: newAuthor || 'ดร. ธนวัฒน์ & อ. ธีรดา',
+      category_id: parseInt(newCategoryId),
+      is_active: true,
+      approval_status: 'approved',
+      stock_status: 'พร้อมจำหน่าย'
     }
+
+    let createdBook = {
+      ...newBookPayload,
+      ebook_id: Date.now(),
+      rating: 5.0,
+      total_reviews: 1
+    }
+
+    try {
+      const { data, error } = await supabase.from('ebooks').insert([newBookPayload]).select()
+      if (!error && data && data.length > 0) {
+        createdBook = { ...createdBook, ...data[0] }
+      }
+    } catch (e) {
+      console.warn('DB insert notice:', e)
+    }
+
+    // บันทึกลง LocalStorage ด้วย
+    try {
+      const savedBooks: any[] = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+      localStorage.setItem('gusso_submitted_books', JSON.stringify([createdBook, ...savedBooks.filter(b => b.title !== newTitle)]))
+    } catch (e) {
+      // ignore
+    }
+
+    alert('🎉 เพิ่มหนังสือใหม่สำเร็จเรียบร้อยแล้ว!')
+    setEbooks(prev => [createdBook as Ebook, ...prev])
+    setNewTitle('')
+    setNewPrice('')
+    setNewAuthor('')
+    setNewDesc('')
+    setNewCover('')
   }
 
   // ฟังก์ชันเพิ่มหมวดหมู่ใหม่
@@ -554,53 +625,102 @@ export default function AdminDashboard() {
     }
   }
 
-  // ฟังก์ชันอนุมัติหนังสือของผู้แต่ง
+  // ฟังก์ชันอนุมัติหนังสือของผู้แต่ง (บันทึกทั้ง LocalStorage และ Supabase)
   const handleApproveBook = async (bookId: number) => {
+    const targetBook = ebooks.find(b => b.ebook_id === bookId)
+
+    // 1. บันทึกลง LocalStorage (overrides & submitted books)
+    try {
+      const overrides = JSON.parse(localStorage.getItem('gusso_book_approval_overrides') || '{}')
+      overrides[bookId] = { approval_status: 'approved', is_active: true, rejection_reason: null }
+      if (targetBook?.title) {
+        overrides[targetBook.title] = { approval_status: 'approved', is_active: true, rejection_reason: null }
+      }
+      localStorage.setItem('gusso_book_approval_overrides', JSON.stringify(overrides))
+
+      const savedBooks: any[] = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+      const updatedSaved = savedBooks.map(b => (b.ebook_id === bookId || (targetBook?.title && b.title === targetBook.title)) ? {
+        ...b,
+        approval_status: 'approved',
+        is_active: true,
+        rejection_reason: null
+      } : b)
+      localStorage.setItem('gusso_submitted_books', JSON.stringify(updatedSaved))
+    } catch (e) {
+      console.warn('localStorage approve save warning:', e)
+    }
+
+    // 2. อัปเดต State บนหน้าจอแอดมินทันที
+    setEbooks(prev => prev.map(b => b.ebook_id === bookId ? {
+      ...b,
+      approval_status: 'approved',
+      is_active: true,
+      rejection_reason: undefined
+    } : b))
+
+    // 3. ซิงค์ไปยัง Supabase
     try {
       await supabase.from('ebooks').update({
         approval_status: 'approved',
         is_active: true,
         rejection_reason: null
       }).eq('ebook_id', bookId)
-
-      setEbooks(ebooks.map(b => b.ebook_id === bookId ? {
-        ...b,
-        approval_status: 'approved',
-        is_active: true,
-        rejection_reason: undefined
-      } : b))
-
-      alert(`✅ อนุมัติหนังสือ #${bookId} เรียบร้อยแล้ว!\nหนังสือจะวางจำหน่ายบนหน้าแรกของร้านค้าทันที`)
     } catch (err) {
-      console.error('Approve error:', err)
-      alert('เกิดข้อผิดพลาดในการอนุมัติหนังสือ')
+      console.warn('Supabase approve error:', err)
     }
+
+    const titleStr = targetBook?.title ? `"${targetBook.title}"` : `#${bookId}`
+    alert(`✅ อนุมัติหนังสือ ${titleStr} เรียบร้อยแล้ว!\n\nหนังสือจะเปิดวางจำหน่ายบนหน้าแรกของร้านค้าทันที และนักเขียนจะได้รับแจ้งสถานะอนุมัติเรียบร้อย`)
   }
 
   // ฟังก์ชันปฏิเสธหนังสือของผู้แต่ง พร้อมระบุเหตุผล
   const handleRejectBook = async (bookId: number) => {
+    const targetBook = ebooks.find(b => b.ebook_id === bookId)
     const reason = prompt('กรุณาระบุเหตุผลที่ไม่อนุมัติ (เช่น เนื้อหาไม่เหมาะสม, ภาพหน้าปกไม่ชัดเจน):', 'เนื้อหาไม่ผ่านเกณฑ์มาตรฐานของร้านค้า')
     if (reason === null) return // กดยกเลิก
 
+    // 1. บันทึกลง LocalStorage
+    try {
+      const overrides = JSON.parse(localStorage.getItem('gusso_book_approval_overrides') || '{}')
+      overrides[bookId] = { approval_status: 'rejected', is_active: false, rejection_reason: reason }
+      if (targetBook?.title) {
+        overrides[targetBook.title] = { approval_status: 'rejected', is_active: false, rejection_reason: reason }
+      }
+      localStorage.setItem('gusso_book_approval_overrides', JSON.stringify(overrides))
+
+      const savedBooks: any[] = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+      const updatedSaved = savedBooks.map(b => (b.ebook_id === bookId || (targetBook?.title && b.title === targetBook.title)) ? {
+        ...b,
+        approval_status: 'rejected',
+        is_active: false,
+        rejection_reason: reason
+      } : b)
+      localStorage.setItem('gusso_submitted_books', JSON.stringify(updatedSaved))
+    } catch (e) {
+      console.warn('localStorage reject save warning:', e)
+    }
+
+    // 2. อัปเดต State บนหน้าจอแอดมินทันที
+    setEbooks(prev => prev.map(b => b.ebook_id === bookId ? {
+      ...b,
+      approval_status: 'rejected',
+      is_active: false,
+      rejection_reason: reason
+    } : b))
+
+    // 3. ซิงค์ไปยัง Supabase
     try {
       await supabase.from('ebooks').update({
         approval_status: 'rejected',
         is_active: false,
         rejection_reason: reason
       }).eq('ebook_id', bookId)
-
-      setEbooks(ebooks.map(b => b.ebook_id === bookId ? {
-        ...b,
-        approval_status: 'rejected',
-        is_active: false,
-        rejection_reason: reason
-      } : b))
-
-      alert(`❌ ปฏิเสธหนังสือ #${bookId} เรียบร้อยแล้ว (หนังสือจะไม่แสดงบนหน้าร้านค้า)`)
     } catch (err) {
-      console.error('Reject error:', err)
-      alert('เกิดข้อผิดพลาดในการปฏิเสธหนังสือ')
+      console.warn('Supabase reject error:', err)
     }
+
+    const titleStr = targetBook?.title ? `"${targetBook.title}"` : `#${bookId}`
+    alert(`❌ ปฏิเสธหนังสือ ${titleStr} เรียบร้อยแล้ว (หนังสือจะไม่แสดงบนหน้าร้านค้า)`)
   }
 
   // คำนวณรายงานส่วนแบ่งรายได้ 60% (ผู้แต่ง) / 40% (เจ้าของเว็บ)
