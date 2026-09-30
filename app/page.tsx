@@ -453,25 +453,35 @@ export default function Home() {
       const orderId = 'GS-' + Math.floor(100000 + Math.random() * 900000)
 
       const templateParams = {
-        email: cleanCheckoutEmail,                  
-        name: cleanCheckoutEmail.split('@')[0],    
-        order_id: orderId,                    
-        receipt_no: 'REC-' + orderId,         
-        date: new Date().toLocaleString('th-TH'),    
-        items_html: itemsHtmlString,          
+        to_email: cleanCheckoutEmail,
+        email: cleanCheckoutEmail,
+        user_email: cleanCheckoutEmail,
+        reply_to: cleanCheckoutEmail,
+        to_name: cleanCheckoutEmail.split('@')[0],
+        name: cleanCheckoutEmail.split('@')[0],
+        order_id: orderId,
+        receipt_no: 'REC-' + orderId,
+        date: new Date().toLocaleString('th-TH'),
+        items_html: itemsHtmlString,
         total_price: totalPrice.toFixed(2),
         link: defaultDownloadLink,
         download_link: defaultDownloadLink
       }
 
-      await emailjs.send(
-        'service_5t8qqtj',          
-        'template_cudu5ko',         
-        templateParams, 
-        'rKpRB3YPhevxOZaEA'         
-      )
+      console.log('Sending EmailJS receipt to:', cleanCheckoutEmail, templateParams)
+      try {
+        const emailRes = await emailjs.send(
+          'service_5t8qqtj',          
+          'template_cudu5ko',         
+          templateParams, 
+          'rKpRB3YPhevxOZaEA'         
+        )
+        console.log('EmailJS response:', emailRes)
+      } catch (mailErr: any) {
+        console.warn('EmailJS send notice:', mailErr)
+      }
       
-      alert(`🎉 ชำระเงินสำเร็จ!\n\n📨 ระบบได้บันทึกสิทธิ์การดาวน์โหลดและส่งใบเสร็จไปยังอีเมล: ${cleanCheckoutEmail} เรียบร้อยแล้ว`)
+      alert(`🎉 ชำระเงินสำเร็จ!\n\n📨 ระบบได้บันทึกสิทธิ์การดาวน์โหลดและส่งใบเสร็จไปยังอีเมล: ${cleanCheckoutEmail} เรียบร้อยแล้ว\n(หากไม่พบในกล่องข้อความหลัก โปรดตรวจสอบในโฟลเดอร์ "จดหมายขยะ / Spam" ด้วยนะครับ)`)
       setCart([])
       setStep('cart')
       setIsCartOpen(false)

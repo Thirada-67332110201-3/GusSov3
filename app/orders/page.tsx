@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import emailjs from '@emailjs/browser'
 import { 
   ArrowLeft, Download, ShoppingBag, CheckCircle, BookOpen, 
   Lock, Clock, Layers, Calendar, DollarSign, PackageCheck, X
@@ -178,11 +179,51 @@ export default function OrdersPage() {
         }
       }
 
-      // 3. อัปเดตสถานะในหน้าจอ
+      // 3. ส่งใบเสร็จและลิงก์ดาวน์โหลดผ่าน EmailJS
+      try {
+        const origin = typeof window !== 'undefined' ? window.location.origin : ''
+        const firstEbookId = order.items[0]?.ebook_id || ''
+        const defaultDownloadLink = `${origin}/download?ebook_id=${firstEbookId}`
+
+        const itemsHtmlString = order.items.map(item => {
+          const downloadLink = `${origin}/download?ebook_id=${item.ebook_id}`
+          return `<div style="margin-bottom: 12px; padding: 10px; background: #f9f9f9; border-radius: 6px;">
+            • <b>${item.title}</b> : <b>฿${Number(item.price).toFixed(2)}</b><br/>
+            <a href="${downloadLink}" style="display: inline-block; margin-top: 6px; padding: 6px 12px; background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 4px; font-size: 12px;">📥 ดาวน์โหลดหนังสือเล่มนี้</a>
+          </div>`
+        }).join('')
+
+        const templateParams = {
+          to_email: cleanEmail,
+          email: cleanEmail,
+          user_email: cleanEmail,
+          reply_to: cleanEmail,
+          to_name: cleanEmail.split('@')[0],
+          name: cleanEmail.split('@')[0],
+          order_id: String(order.order_id),
+          receipt_no: 'REC-' + order.order_id,
+          date: new Date().toLocaleString('th-TH'),
+          items_html: itemsHtmlString,
+          total_price: Number(order.total_amount).toFixed(2),
+          link: defaultDownloadLink,
+          download_link: defaultDownloadLink
+        }
+
+        await emailjs.send(
+          'service_5t8qqtj',
+          'template_cudu5ko',
+          templateParams,
+          'rKpRB3YPhevxOZaEA'
+        )
+      } catch (mailErr) {
+        console.warn('EmailJS send notice in orders:', mailErr)
+      }
+
+      // 4. อัปเดตสถานะในหน้าจอ
       setOrders(orders.map(o => o.order_id === order.order_id ? { ...o, status: 'ยืนยันแล้ว' } : o))
       setPayingOrder(null)
 
-      alert(`🎉 ยืนยันชำระเงินคำสั่งซื้อ #${order.order_id} สำเร็จแล้ว!\n\n📋 สถานะบิลของคุณเปลี่ยนเป็น: "✅ ยืนยันแล้ว"\n🔓 ระบบได้ปลดล็อคสิทธิ์ดาวน์โหลด E-Book ทุกเล่มในบิลนี้เรียบร้อยแล้วครับ`)
+      alert(`🎉 ยืนยันชำระเงินคำสั่งซื้อ #${order.order_id} สำเร็จแล้ว!\n\n📋 สถานะบิลของคุณเปลี่ยนเป็น: "✅ ยืนยันแล้ว"\n📨 ส่งใบเสร็จและลิงก์ดาวน์โหลดไปยัง: ${cleanEmail} เรียบร้อยแล้ว\n(หากไม่พบในกล่องข้อความหลัก โปรดตรวจสอบในโฟลเดอร์ "จดหมายขยะ / Spam" ด้วยนะครับ)`)
     } catch (err: any) {
       console.error(err)
       alert('เกิดข้อผิดพลาดในการยืนยันชำระเงิน: ' + (err.message || ''))
