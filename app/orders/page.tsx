@@ -232,6 +232,49 @@ export default function OrdersPage() {
     }
   }
 
+  // ฟังก์ชันยกเลิกคำสั่งซื้อสำหรับผู้ใช้งาน (ลูกค้า)
+  const handleCancelOrder = async (order: OrderRecord) => {
+    const confirmCancel = window.confirm(
+      `คุณต้องการยกเลิกคำสั่งซื้อ #${order.order_id} หรือไม่?\n\nเมื่อกดยืนยัน คำสั่งซื้อนี้จะสิ้นสุดลง และสถานะในระบบจะอัปเดตเป็น "ยกเลิก" ทันที เพื่อให้ผู้ดูแลระบบ (Admin) ตรวจสอบได้`
+    )
+    if (!confirmCancel) return
+
+    try {
+      // 1. อัปเดตตาราง orders ใน Supabase
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'ยกเลิก' })
+        .eq('order_id', order.order_id)
+
+      if (error) {
+        console.warn('Supabase order cancel warning:', error)
+      }
+
+      // 2. อัปเดตแคชคำสั่งซื้อใน localStorage
+      try {
+        const storedOrders = localStorage.getItem('gusso_user_orders')
+        if (storedOrders) {
+          const parsed = JSON.parse(storedOrders)
+          const updated = parsed.map((o: any) => o.order_id === order.order_id ? { ...o, status: 'ยกเลิก' } : o)
+          localStorage.setItem('gusso_user_orders', JSON.stringify(updated))
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      // 3. อัปเดต State ในหน้าจอ
+      setOrders(prev => prev.map(o => o.order_id === order.order_id ? { ...o, status: 'ยกเลิก' } : o))
+      if (payingOrder?.order_id === order.order_id) {
+        setPayingOrder(null)
+      }
+
+      alert(`❌ ยกเลิกคำสั่งซื้อ #${order.order_id} เรียบร้อยแล้ว!\n\nสถานะได้รับการปรับเป็น "ยกเลิก" และระบบได้แจ้งให้ผู้ดูแลระบบ (Admin) ทราบเรียบร้อยแล้วครับ`)
+    } catch (e: any) {
+      console.error('Cancel order error:', e)
+      alert('เกิดข้อผิดพลาดในการยกเลิกคำสั่งซื้อ: ' + (e.message || 'โปรดลองใหม่อีกครั้ง'))
+    }
+  }
+
   // คำนวณสรุปภาพรวม
   const totalOrdersCount = orders.length
   const totalBooksCount = orders.reduce((sum, o) => sum + o.items.length, 0)
@@ -426,22 +469,29 @@ export default function OrdersPage() {
                         ยืนยันแล้ว
                       </span>
                     ) : ord.status === 'รอชำระ' ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-2xs">
                           <Clock className="w-3.5 h-3.5 text-amber-600" />
                           รอชำระเงิน
                         </span>
                         <button
                           onClick={() => setPayingOrder(ord)}
-                          className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                          className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer hover:scale-105 active:scale-95"
                           title="สแกน QR Code เพื่อชำระเงิน"
                         >
                           💳 ชำระเงินตอนนี้
                         </button>
+                        <button
+                          onClick={() => handleCancelOrder(ord)}
+                          className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95"
+                          title="ยกเลิกคำสั่งซื้อนี้"
+                        >
+                          ✕ ยกเลิกคำสั่งซื้อ
+                        </button>
                       </div>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded-full shadow-2xs">
-                        ✕ ยกเลิก
+                        ✕ ยกเลิกแล้ว
                       </span>
                     )}
                   </div>
@@ -488,23 +538,29 @@ export default function OrdersPage() {
                             ดาวน์โหลด E-Book
                           </Link>
                         ) : ord.status === 'รอชำระ' ? (
-                          <div className="text-right flex flex-col items-end gap-1">
-                            <button
-                              onClick={() => setPayingOrder(ord)}
-                              className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
-                            >
-                              <Clock className="w-3.5 h-3.5" />
-                              <span>💳 สแกนจ่าย ฿{ord.total_amount.toFixed(2)}</span>
-                            </button>
+                          <div className="text-right flex flex-col items-end gap-1.5">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setPayingOrder(ord)}
+                                className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                              >
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>💳 สแกนจ่าย ฿{ord.total_amount.toFixed(2)}</span>
+                              </button>
+                              <button
+                                onClick={() => handleCancelOrder(ord)}
+                                className="inline-flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer hover:scale-105 active:scale-95"
+                                title="ยกเลิกคำสั่งซื้อ"
+                              >
+                                <span>✕ ยกเลิก</span>
+                              </button>
+                            </div>
                             <span className="block text-[10px] text-amber-600 font-medium">🔒 ชำระเงินเพื่อปลดล็อคดาวน์โหลด</span>
                           </div>
                         ) : (
-                          <button
-                            disabled
-                            className="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 text-gray-400 px-3.5 py-2 rounded-xl text-xs font-bold cursor-not-allowed shadow-none"
-                          >
-                            <span>🚫 ยกเลิกคำสั่งซื้อ</span>
-                          </button>
+                          <div className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-600 px-3.5 py-2 rounded-xl text-xs font-bold">
+                            <span>🚫 คำสั่งซื้อถูกยกเลิกแล้ว</span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -553,82 +609,96 @@ export default function OrdersPage() {
 
       {/* Modal สแกนชำระเงินสำหรับคำสั่งซื้อที่รอชำระ (Pending Payment QR Modal) */}
       {payingOrder && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-sm sm:max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50">
-              <div className="flex items-center gap-2">
-                <span className="p-2 bg-amber-100 text-amber-700 rounded-xl text-lg">📱</span>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <span className="w-9 h-9 bg-amber-100 text-amber-700 rounded-xl flex items-center justify-center text-lg shadow-2xs">📱</span>
                 <div>
-                  <h3 className="font-extrabold text-gray-900 text-base">ชำระเงินคำสั่งซื้อ #{payingOrder.order_id}</h3>
-                  <p className="text-xs text-amber-800">สแกน QR Code พร้อมเพย์ เพื่อชำระเงิน</p>
+                  <h3 className="font-extrabold text-gray-900 text-sm sm:text-base leading-tight">ชำระเงินคำสั่งซื้อ #{payingOrder.order_id}</h3>
+                  <p className="text-[11px] text-amber-800">สแกน QR Code พร้อมเพย์ เพื่อชำระเงิน</p>
                 </div>
               </div>
               <button
                 onClick={() => setPayingOrder(null)}
-                className="p-1.5 hover:bg-white/60 text-gray-400 hover:text-gray-600 rounded-full transition cursor-pointer"
+                className="p-1.5 hover:bg-white/70 text-gray-400 hover:text-gray-600 rounded-full transition cursor-pointer"
+                title="ปิด"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Content */}
-            <div className="p-6 overflow-y-auto space-y-4">
-              <div className="text-center bg-gray-50 p-5 rounded-2xl border border-gray-100">
+            <div className="p-4 sm:p-5 space-y-3.5 overflow-y-auto max-h-[70vh]">
+              <div className="text-center bg-gray-50 p-4 rounded-2xl border border-gray-100">
                 <span className="text-xs text-gray-400 block font-medium">ยอดที่ต้องชำระ</span>
-                <span className="text-3xl font-black text-emerald-600">
+                <span className="text-2xl sm:text-3xl font-black text-emerald-600 tracking-tight">
                   ฿{Number(payingOrder.total_amount).toFixed(2)}
                 </span>
 
-                <div className="bg-white p-3 inline-block rounded-2xl shadow-sm border border-gray-200 my-3">
+                <div className="bg-white p-2.5 inline-block rounded-2xl shadow-xs border border-gray-200 my-2.5">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=GusSoOrder_${payingOrder.order_id}_Amount_${payingOrder.total_amount}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=GusSoOrder_${payingOrder.order_id}_Amount_${payingOrder.total_amount}`}
                     alt="PromptPay QR Code"
-                    className="w-44 h-44 mx-auto"
+                    className="w-32 h-32 sm:w-36 sm:h-36 mx-auto object-contain"
                   />
                 </div>
-                <p className="text-xs font-bold text-gray-700">พร้อมเพย์: 081-234-5678 (GusSo Store)</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">หรือ ธ.กสิกรไทย: 123-4-56789-0</p>
+                <p className="text-xs font-bold text-gray-800">พร้อมเพย์: 081-234-5678 (GusSo Store)</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">หรือ ธ.กสิกรไทย: 123-4-56789-0</p>
               </div>
 
               {/* รายการหนังสือในบิลนี้ */}
-              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/60 text-xs space-y-1.5">
-                <span className="font-bold text-slate-700 block">รายการหนังสือในบิลนี้ ({payingOrder.items.length} เล่ม):</span>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/70 text-xs space-y-1">
+                <div className="flex justify-between items-center text-slate-700 font-bold mb-1">
+                  <span>รายการหนังสือในบิลนี้:</span>
+                  <span className="bg-slate-200 text-slate-700 text-[10px] px-2 py-0.5 rounded-full">{payingOrder.items.length} เล่ม</span>
+                </div>
                 {payingOrder.items.map(it => (
-                  <div key={it.ebook_id} className="flex justify-between items-center text-slate-600">
+                  <div key={it.ebook_id} className="flex justify-between items-center text-slate-600 text-[11px]">
                     <span className="truncate pr-2">• {it.title}</span>
                     <span className="font-bold shrink-0">฿{Number(it.price).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
 
-              <div className="bg-amber-50 p-3 rounded-xl border border-amber-200/60 text-xs text-amber-800 space-y-1">
-                <p className="font-bold flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+              <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200/60 text-xs text-amber-900 space-y-0.5">
+                <p className="font-bold flex items-center gap-1 text-[11px]">
+                  <Clock className="w-3 h-3 text-amber-600" />
                   คำแนะนำเมื่อโอนเงินแล้ว:
                 </p>
-                <p className="text-[11px] leading-relaxed text-amber-700">
-                  เมื่อคุณโอนเงินตามยอดที่ระบุเรียบร้อยแล้ว ให้กดปุ่ม <strong>&quot;ยืนยันชำระเงินสำเร็จ&quot;</strong> ด้านล่างเพื่อทำการปลดล็อคสิทธิ์ดาวน์โหลด E-Book ได้ทันที
+                <p className="text-[10.5px] leading-relaxed text-amber-800">
+                  เมื่อคุณโอนเงินเรียบร้อยแล้ว กดปุ่ม <strong>&quot;ฉันโอนเงินเรียบร้อยแล้ว&quot;</strong> ด้านล่างเพื่อปลดล็อคสิทธิ์ดาวน์โหลด E-Book ได้ทันที
                 </p>
               </div>
             </div>
 
             {/* Footer Buttons */}
-            <div className="p-4 border-t border-gray-100 bg-gray-50 flex flex-col gap-2">
+            <div className="p-3.5 sm:p-4 border-t border-gray-100 bg-gray-50 flex flex-col gap-2 shrink-0">
               <button
                 onClick={() => handleConfirmOrderPayment(payingOrder)}
                 disabled={processingPayment}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-200 disabled:opacity-50 cursor-pointer"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-200 disabled:opacity-50 cursor-pointer hover:scale-[1.01] active:scale-[0.99]"
               >
                 <CheckCircle className="w-4 h-4" />
                 <span>{processingPayment ? 'กำลังยืนยันยอดเงิน...' : '⚡ ฉันโอนเงินเรียบร้อยแล้ว (ยืนยันรับสิทธิ์ดาวน์โหลด)'}</span>
               </button>
-              <button
-                onClick={() => setPayingOrder(null)}
-                className="w-full bg-white hover:bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-xl text-xs border border-gray-200 transition cursor-pointer"
-              >
-                ปิดหน้าต่าง (ไว้ชำระภายหลัง)
-              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setPayingOrder(null)}
+                  className="w-full bg-white hover:bg-gray-100 text-gray-700 font-semibold py-2 rounded-xl text-xs border border-gray-200 transition cursor-pointer text-center"
+                >
+                  ไว้ชำระภายหลัง
+                </button>
+                <button
+                  onClick={() => handleCancelOrder(payingOrder)}
+                  className="w-full bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 rounded-xl text-xs border border-red-200 transition cursor-pointer text-center flex items-center justify-center gap-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>ยกเลิกคำสั่งซื้อนี้</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
