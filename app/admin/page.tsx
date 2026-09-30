@@ -54,8 +54,11 @@ export default function AdminDashboard() {
     const { data: ebookData } = await supabase.from('ebooks').select('*').order('ebook_id', { ascending: false })
     setEbooks(ebookData || [])
 
-    // ดึงข้อมูลผู้ใช้งานจากตาราง auth (ผ่านฟังก์ชันหรือดึงจากตาราง users ถ้ามี)
-    const { data: userData } = await supabase.from('users').select('*')
+    // ดึงข้อมูลผู้ใช้งานจากตาราง auth ผ่าน view users
+    const { data: userData } = await supabase
+      .from('users')
+      .select('*')
+      .order('created_at', { ascending: false })
     setUsers(userData || [])
 
     setLoading(false)
