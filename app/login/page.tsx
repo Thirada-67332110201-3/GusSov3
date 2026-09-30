@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import emailjs from '@emailjs/browser'
 import { useRouter } from 'next/navigation'
+import { Eye, EyeOff } from 'lucide-react'
 
 type Mode = 'login' | 'signup' | 'forgot'
 
@@ -14,6 +15,7 @@ export default function LoginPage() {
   
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
 
   // จัดการเข้าสู่ระบบ
@@ -21,14 +23,15 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const cleanEmail = email.trim().toLowerCase()
+    const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
 
     if (error) {
       alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message)
       setLoading(false)
     } else {
       alert('เข้าสู่ระบบสำเร็จ!')
-      if (email === 'admin@gusso.com') {
+      if (cleanEmail === 'admin@gusso.com') {
         router.push('/admin')
       } else {
         router.push('/')
@@ -41,7 +44,8 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
 
-    const { error } = await supabase.auth.signUp({ email, password })
+    const cleanEmail = email.trim().toLowerCase()
+    const { error } = await supabase.auth.signUp({ email: cleanEmail, password })
 
     if (error) {
       alert('สมัครสมาชิกไม่สำเร็จ: ' + error.message)
@@ -115,15 +119,24 @@ export default function LoginPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">รหัสผ่าน</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                placeholder="••••••••"
-                autoComplete="current-password"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full border rounded-lg p-3 pr-10 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
             <div className="flex justify-between items-center text-sm">
               <button
@@ -168,15 +181,24 @@ export default function LoginPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">รหัสผ่าน</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                placeholder="••••••••"
-                autoComplete="new-password"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full border rounded-lg p-3 pr-10 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
             <button
               type="submit"
