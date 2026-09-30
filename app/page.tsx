@@ -186,16 +186,21 @@ export default function Home() {
     setPaying(true)
 
     try {
+      const cleanCheckoutEmail = checkoutEmail.trim().toLowerCase()
+
       for (const item of cart) {
         await supabase.from('purchases').insert([
           {
-            user_email: checkoutEmail,
+            user_email: cleanCheckoutEmail,
             ebook_id: item.ebook_id
           }
         ])
       }
 
       const origin = window.location.origin
+      const firstEbookId = cart[0]?.ebook_id || ''
+      const defaultDownloadLink = `${origin}/download?ebook_id=${firstEbookId}`
+
       const itemsHtmlString = cart.map(item => {
         const downloadLink = `${origin}/download?ebook_id=${item.ebook_id}`
         return `<div style="margin-bottom: 12px; padding: 10px; background: #f9f9f9; border-radius: 6px;">
@@ -207,13 +212,15 @@ export default function Home() {
       const orderId = 'GS-' + Math.floor(100000 + Math.random() * 900000)
 
       const templateParams = {
-        email: checkoutEmail,                  
-        name: checkoutEmail.split('@')[0],    
+        email: cleanCheckoutEmail,                  
+        name: cleanCheckoutEmail.split('@')[0],    
         order_id: orderId,                    
         receipt_no: 'REC-' + orderId,         
-        date: new Date().toLocaleString(),    
+        date: new Date().toLocaleString('th-TH'),    
         items_html: itemsHtmlString,          
-        total_price: totalPrice.toFixed(2)    
+        total_price: totalPrice.toFixed(2),
+        link: defaultDownloadLink,
+        download_link: defaultDownloadLink
       }
 
       await emailjs.send(
