@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import emailjs from '@emailjs/browser'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare } from 'lucide-react'
+import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare, Clock } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA, BookReview } from '@/lib/books-data'
 
 type Ebook = {
@@ -483,6 +483,52 @@ export default function Home() {
     }
   }
 
+  // ฟังก์ชันบันทึกคำสั่งซื้อไว้ก่อน (สถานะ "รอชำระ") สำหรับลูกค้าที่ลืมชำระ หรือต้องการชำระเงินภายหลัง
+  const handleSavePendingOrder = async () => {
+    setPaying(true)
+    try {
+      const cleanCheckoutEmail = checkoutEmail.trim().toLowerCase()
+      if (!cleanCheckoutEmail) {
+        alert('กรุณากรอกอีเมลสำหรับรับข้อมูลคำสั่งซื้อ')
+        setPaying(false)
+        return
+      }
+
+      // บันทึกลงตาราง orders ด้วยสถานะ "รอชำระ"
+      const { data: orderData, error: orderErr } = await supabase.from('orders').insert([
+        {
+          customer_email: cleanCheckoutEmail,
+          total_amount: totalPrice,
+          status: 'รอชำระ'
+        }
+      ]).select().single()
+
+      if (orderData?.order_id) {
+        for (const item of cart) {
+          await supabase.from('order_items').insert([
+            {
+              order_id: orderData.order_id,
+              ebook_id: item.ebook_id,
+              quantity: item.quantity,
+              unit_price: item.price
+            }
+          ])
+        }
+      }
+
+      alert(`📋 บันทึกคำสั่งซื้อ #${orderData?.order_id || 'ใหม่'} สำเร็จแล้ว!\n\nสถานะปัจจุบัน: "🕒 รอชำระเงิน"\nยอดรวม: ฿${totalPrice.toFixed(2)}\n\nคุณสามารถเข้าสู่เมนู "คำสั่งซื้อของฉัน" เพื่อดูสถานะ และสแกน QR Code ชำระเงินได้ทุกเมื่อ`)
+      setCart([])
+      setStep('cart')
+      setIsCartOpen(false)
+      router.push('/orders')
+    } catch (e: any) {
+      console.error(e)
+      alert('เกิดข้อผิดพลาดในการบันทึกคำสั่งซื้อ: ' + (e.message || ''))
+    } finally {
+      setPaying(false)
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
@@ -877,13 +923,23 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="border-t pt-4">
+                <div className="border-t pt-4 space-y-2">
                   <button
                     onClick={handleCheckoutWithDownloadLinks}
                     disabled={paying}
-                    className="w-full bg-indigo-600 text-white py-3.5 rounded-xl hover:bg-indigo-700 transition font-semibold text-sm disabled:opacity-50 shadow-md flex items-center justify-center gap-2"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-xl transition font-semibold text-sm disabled:opacity-50 shadow-md flex items-center justify-center gap-2 cursor-pointer"
                   >
                     {paying ? 'กำลังบันทึกสิทธิ์ & ส่งใบเสร็จ...' : '⚡ ยืนยันชำระเงินสำเร็จ & รับลิงก์ดาวน์โหลด'}
+                  </button>
+
+                  <button
+                    onClick={handleSavePendingOrder}
+                    disabled={paying}
+                    type="button"
+                    className="w-full bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 py-2.5 rounded-xl transition font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Clock className="w-4 h-4 text-amber-600" />
+                    <span>💾 บันทึกคำสั่งซื้อไว้ก่อน (รอชำระภายหลัง)</span>
                   </button>
                 </div>
               </div>

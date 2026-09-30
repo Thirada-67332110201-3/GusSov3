@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { 
   ArrowLeft, Download, ShoppingBag, CheckCircle, BookOpen, 
-  Lock, Clock, Layers, Calendar, DollarSign, PackageCheck
+  Lock, Clock, Layers, Calendar, DollarSign, PackageCheck, X
 } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA } from '@/lib/books-data'
 
@@ -34,6 +34,8 @@ export default function OrdersPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [orders, setOrders] = useState<OrderRecord[]>([])
   const [viewMode, setViewMode] = useState<'orders' | 'books'>('orders')
+  const [payingOrder, setPayingOrder] = useState<OrderRecord | null>(null)
+  const [processingPayment, setProcessingPayment] = useState(false)
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -155,6 +157,39 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchOrders()
   }, [fetchOrders])
+
+  // ฟังก์ชันยืนยันการชำระเงินสำหรับคำสั่งซื้อที่เคยค้างชำระ (สถานะ "รอชำระ" -> "ยืนยันแล้ว")
+  const handleConfirmOrderPayment = async (order: OrderRecord) => {
+    setProcessingPayment(true)
+    try {
+      // 1. อัปเดตตาราง orders ให้ status = 'ยืนยันแล้ว'
+      await supabase.from('orders').update({ status: 'ยืนยันแล้ว' }).eq('order_id', order.order_id)
+
+      // 2. เพิ่มสิทธิ์การดาวน์โหลดลงตาราง purchases
+      const cleanEmail = (userEmail || '').trim().toLowerCase()
+      if (cleanEmail) {
+        for (const it of order.items) {
+          await supabase.from('purchases').insert([
+            {
+              user_email: cleanEmail,
+              ebook_id: it.ebook_id
+            }
+          ])
+        }
+      }
+
+      // 3. อัปเดตสถานะในหน้าจอ
+      setOrders(orders.map(o => o.order_id === order.order_id ? { ...o, status: 'ยืนยันแล้ว' } : o))
+      setPayingOrder(null)
+
+      alert(`🎉 ยืนยันชำระเงินคำสั่งซื้อ #${order.order_id} สำเร็จแล้ว!\n\n📋 สถานะบิลของคุณเปลี่ยนเป็น: "✅ ยืนยันแล้ว"\n🔓 ระบบได้ปลดล็อคสิทธิ์ดาวน์โหลด E-Book ทุกเล่มในบิลนี้เรียบร้อยแล้วครับ`)
+    } catch (err: any) {
+      console.error(err)
+      alert('เกิดข้อผิดพลาดในการยืนยันชำระเงิน: ' + (err.message || ''))
+    } finally {
+      setProcessingPayment(false)
+    }
+  }
 
   // คำนวณสรุปภาพรวม
   const totalOrdersCount = orders.length
@@ -350,10 +385,19 @@ export default function OrdersPage() {
                         ยืนยันแล้ว
                       </span>
                     ) : ord.status === 'รอชำระ' ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-2xs">
-                        <Clock className="w-3.5 h-3.5 text-amber-600" />
-                        รอชำระเงิน
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-2xs">
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          รอชำระเงิน
+                        </span>
+                        <button
+                          onClick={() => setPayingOrder(ord)}
+                          className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                          title="สแกน QR Code เพื่อชำระเงิน"
+                        >
+                          💳 ชำระเงินตอนนี้
+                        </button>
+                      </div>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded-full shadow-2xs">
                         ✕ ยกเลิก
@@ -403,16 +447,15 @@ export default function OrdersPage() {
                             ดาวน์โหลด E-Book
                           </Link>
                         ) : ord.status === 'รอชำระ' ? (
-                          <div className="text-right">
+                          <div className="text-right flex flex-col items-end gap-1">
                             <button
-                              disabled
-                              className="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 text-gray-400 px-3.5 py-2 rounded-xl text-xs font-bold cursor-not-allowed shadow-none"
-                              title="คำสั่งซื้อที่ยังไม่ยืนยันไม่สามารถเปิดลิงก์ดาวน์โหลดได้"
+                              onClick={() => setPayingOrder(ord)}
+                              className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
                             >
-                              <Lock className="w-3.5 h-3.5 text-amber-500" />
-                              <span>🔒 รอแอดมินยืนยัน</span>
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>💳 สแกนจ่าย ฿{ord.total_amount.toFixed(2)}</span>
                             </button>
-                            <span className="block text-[10px] text-amber-600 mt-1">ยังไม่สามารถดาวน์โหลดได้</span>
+                            <span className="block text-[10px] text-amber-600 font-medium">🔒 ชำระเงินเพื่อปลดล็อคดาวน์โหลด</span>
                           </div>
                         ) : (
                           <button
@@ -466,6 +509,89 @@ export default function OrdersPage() {
           </div>
         )}
       </div>
+
+      {/* Modal สแกนชำระเงินสำหรับคำสั่งซื้อที่รอชำระ (Pending Payment QR Modal) */}
+      {payingOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-amber-100 text-amber-700 rounded-xl text-lg">📱</span>
+                <div>
+                  <h3 className="font-extrabold text-gray-900 text-base">ชำระเงินคำสั่งซื้อ #{payingOrder.order_id}</h3>
+                  <p className="text-xs text-amber-800">สแกน QR Code พร้อมเพย์ เพื่อชำระเงิน</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPayingOrder(null)}
+                className="p-1.5 hover:bg-white/60 text-gray-400 hover:text-gray-600 rounded-full transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto space-y-4">
+              <div className="text-center bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                <span className="text-xs text-gray-400 block font-medium">ยอดที่ต้องชำระ</span>
+                <span className="text-3xl font-black text-emerald-600">
+                  ฿{Number(payingOrder.total_amount).toFixed(2)}
+                </span>
+
+                <div className="bg-white p-3 inline-block rounded-2xl shadow-sm border border-gray-200 my-3">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=GusSoOrder_${payingOrder.order_id}_Amount_${payingOrder.total_amount}`}
+                    alt="PromptPay QR Code"
+                    className="w-44 h-44 mx-auto"
+                  />
+                </div>
+                <p className="text-xs font-bold text-gray-700">พร้อมเพย์: 081-234-5678 (GusSo Store)</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">หรือ ธ.กสิกรไทย: 123-4-56789-0</p>
+              </div>
+
+              {/* รายการหนังสือในบิลนี้ */}
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/60 text-xs space-y-1.5">
+                <span className="font-bold text-slate-700 block">รายการหนังสือในบิลนี้ ({payingOrder.items.length} เล่ม):</span>
+                {payingOrder.items.map(it => (
+                  <div key={it.ebook_id} className="flex justify-between items-center text-slate-600">
+                    <span className="truncate pr-2">• {it.title}</span>
+                    <span className="font-bold shrink-0">฿{Number(it.price).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-amber-50 p-3 rounded-xl border border-amber-200/60 text-xs text-amber-800 space-y-1">
+                <p className="font-bold flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  คำแนะนำเมื่อโอนเงินแล้ว:
+                </p>
+                <p className="text-[11px] leading-relaxed text-amber-700">
+                  เมื่อคุณโอนเงินตามยอดที่ระบุเรียบร้อยแล้ว ให้กดปุ่ม <strong>&quot;ยืนยันชำระเงินสำเร็จ&quot;</strong> ด้านล่างเพื่อทำการปลดล็อคสิทธิ์ดาวน์โหลด E-Book ได้ทันที
+                </p>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="p-4 border-t border-gray-100 bg-gray-50 flex flex-col gap-2">
+              <button
+                onClick={() => handleConfirmOrderPayment(payingOrder)}
+                disabled={processingPayment}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-200 disabled:opacity-50 cursor-pointer"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>{processingPayment ? 'กำลังยืนยันยอดเงิน...' : '⚡ ฉันโอนเงินเรียบร้อยแล้ว (ยืนยันรับสิทธิ์ดาวน์โหลด)'}</span>
+              </button>
+              <button
+                onClick={() => setPayingOrder(null)}
+                className="w-full bg-white hover:bg-gray-100 text-gray-600 font-semibold py-2.5 rounded-xl text-xs border border-gray-200 transition cursor-pointer"
+              >
+                ปิดหน้าต่าง (ไว้ชำระภายหลัง)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
