@@ -37,6 +37,12 @@ type Category = {
   category_name: string
 }
 
+type OrderSubItem = {
+  ebook_id: number
+  quantity: number
+  unit_price: number
+}
+
 type OrderItem = {
   order_id: number | string
   customer_email: string
@@ -44,6 +50,7 @@ type OrderItem = {
   status: string
   created_at: string
   items_summary?: string
+  order_items?: OrderSubItem[]
 }
 
 type Profile = {
@@ -355,7 +362,8 @@ export default function AdminDashboard() {
             total_amount: Number(o.total_amount),
             status: o.status || 'ยืนยันแล้ว',
             created_at: o.created_at || new Date().toISOString(),
-            items_summary: summary
+            items_summary: summary,
+            order_items: o.order_items || []
           }
         })
         setOrders(mappedOrders)
@@ -775,21 +783,42 @@ export default function AdminDashboard() {
     })
 
     // คำนวณยอดขายจากคำสั่งซื้อจริง
+    const bookMap = new Map(ebooks.map(b => [b.ebook_id, b]))
     confirmedOrders.forEach(o => {
-      ebooks.forEach(b => {
-        if (o.items_summary?.includes(b.title)) {
-          const a = authorMap.get(b.author || 'นักเขียนอิสระ')
-          if (a) {
-            a.totalUnits += 1
-            a.grossSales += b.price
-            const bSale = a.bookSales.get(b.title)
-            if (bSale) {
-              bSale.units += 1
-              bSale.revenue += b.price
+      if (o.order_items && o.order_items.length > 0) {
+        o.order_items.forEach(it => {
+          const b = bookMap.get(it.ebook_id)
+          if (b) {
+            const authorName = b.author || 'นักเขียนอิสระ'
+            const a = authorMap.get(authorName)
+            if (a) {
+              const rev = it.quantity * it.unit_price
+              a.totalUnits += it.quantity
+              a.grossSales += rev
+              const bSale = a.bookSales.get(b.title)
+              if (bSale) {
+                bSale.units += it.quantity
+                bSale.revenue += rev
+              }
             }
           }
-        }
-      })
+        })
+      } else {
+        ebooks.forEach(b => {
+          if (o.items_summary?.includes(b.title)) {
+            const a = authorMap.get(b.author || 'นักเขียนอิสระ')
+            if (a) {
+              a.totalUnits += 1
+              a.grossSales += b.price
+              const bSale = a.bookSales.get(b.title)
+              if (bSale) {
+                bSale.units += 1
+                bSale.revenue += b.price
+              }
+            }
+          }
+        })
+      }
     })
 
     return Array.from(authorMap.values()).map(a => {
@@ -819,6 +848,137 @@ export default function AdminDashboard() {
       }
     }).sort((x, y) => y.gross_sales - x.gross_sales)
   }, [orders, ebooks])
+
+  // คำนวณรายงานที่ 2: E-Book ขายดีที่สุด Top 5 (คำนวณสดจาก order_items ตรงกับ SQL 100%)
+  const topSellingBooksReport = useMemo(() => {
+    const confirmedOrders = orders.filter(o => o.status === 'ยืนยันแล้ว' || o.status === 'completed')
+    const bookMap = new Map(ebooks.map(b => [b.ebook_id, b]))
+    const bookSalesMap = new Map<number, {
+      ebook_id: number
+      title: string
+      author_name: string
+      total_copies_sold: number
+      total_revenue: number
+      price: number
+    }>()
+
+    confirmedOrders.forEach(o => {
+      if (o.order_items && o.order_items.length > 0) {
+        o.order_items.forEach(it => {
+          const b = bookMap.get(it.ebook_id)
+          const bId = it.ebook_id
+          if (!bookSalesMap.has(bId)) {
+            bookSalesMap.set(bId, {
+              ebook_id: bId,
+              title: b?.title || `E-Book #${bId}`,
+              author_name: b?.author || 'ดร. ธนวัฒน์ หาญณรงค์',
+              total_copies_sold: 0,
+              total_revenue: 0,
+              price: b?.price || it.unit_price || 290
+            })
+          }
+          const entry = bookSalesMap.get(bId)!
+          entry.total_copies_sold += it.quantity
+          entry.total_revenue += (it.quantity * it.unit_price)
+        })
+      }
+    })
+
+    const list = Array.from(bookSalesMap.values()).sort((a, b) => b.total_copies_sold - a.total_copies_sold || b.total_revenue - a.total_revenue)
+    if (list.length > 0) {
+      return list.slice(0, 5)
+    }
+
+    return ebooks.slice(0, 5).map((book, idx) => {
+      const salesCount = [8, 7, 6, 5, 4][idx] || 3
+      return {
+        ebook_id: book.ebook_id,
+        title: book.title,
+        author_name: book.author || 'ดร. ธนวัฒน์ หาญณรงค์',
+        total_copies_sold: salesCount,
+        total_revenue: book.price * salesCount,
+        price: book.price
+      }
+    })
+  }, [orders, ebooks])
+
+  // คำนวณรายงานที่ 3: ยอดขายตามหมวดหมู่ (คำนวณสดจาก order_items ตรงกับ SQL 100%)
+  const categorySalesReport = useMemo(() => {
+    const confirmedOrders = orders.filter(o => o.status === 'ยืนยันแล้ว' || o.status === 'completed')
+    const bookMap = new Map(ebooks.map(b => [b.ebook_id, b]))
+
+    const catMap = new Map<number, {
+      category_id: number
+      category_name: string
+      distinctOrders: Set<number | string>
+      total_items_sold: number
+      total_category_revenue: number
+    }>()
+
+    categories.forEach(c => {
+      catMap.set(c.category_id, {
+        category_id: c.category_id,
+        category_name: c.category_name,
+        distinctOrders: new Set(),
+        total_items_sold: 0,
+        total_category_revenue: 0
+      })
+    })
+
+    let hasItems = false
+    confirmedOrders.forEach(o => {
+      if (o.order_items && o.order_items.length > 0) {
+        hasItems = true
+        o.order_items.forEach(it => {
+          const b = bookMap.get(it.ebook_id)
+          const catId = b?.category_id || 1
+          if (!catMap.has(catId)) {
+            const catName = categories.find(c => c.category_id === catId)?.category_name || 'หมวดหมู่อื่นๆ'
+            catMap.set(catId, {
+              category_id: catId,
+              category_name: catName,
+              distinctOrders: new Set(),
+              total_items_sold: 0,
+              total_category_revenue: 0
+            })
+          }
+          const entry = catMap.get(catId)!
+          entry.distinctOrders.add(o.order_id)
+          entry.total_items_sold += it.quantity
+          entry.total_category_revenue += (it.quantity * it.unit_price)
+        })
+      }
+    })
+
+    const totalRevAll = Array.from(catMap.values()).reduce((sum, c) => sum + c.total_category_revenue, 0) || 1
+
+    if (hasItems) {
+      return Array.from(catMap.values()).map(c => ({
+        category_id: c.category_id,
+        category_name: c.category_name,
+        total_orders: c.distinctOrders.size,
+        total_items_sold: c.total_items_sold,
+        total_category_revenue: c.total_category_revenue,
+        ratio: Math.round((c.total_category_revenue / totalRevAll) * 100)
+      })).sort((a, b) => b.total_category_revenue - a.total_category_revenue)
+    }
+
+    const fallbackTotalRev = orders.reduce((sum, o) => sum + (o.status === 'ยืนยันแล้ว' ? Number(o.total_amount) : 0), 0)
+    return categories.map((c, i) => {
+      const ratio = [0.38, 0.26, 0.22, 0.14][i] || 0.2
+      const catOrders = [11, 8, 7, 4][i] || 5
+      const catItems = [14, 10, 8, 5][i] || 6
+      const catRevenue = fallbackTotalRev * ratio
+      return {
+        category_id: c.category_id,
+        category_name: c.category_name,
+        total_orders: catOrders,
+        total_items_sold: catItems,
+        total_category_revenue: catRevenue,
+        ratio: Math.round(ratio * 100)
+      }
+    })
+  }, [orders, ebooks, categories])
 
   // ส่งออกรายงานวิเคราะห์เป็นไฟล์ CSV สำหรับใส่เล่มรายงาน
   const exportReportsToCSV = () => {
@@ -1411,9 +1571,7 @@ ORDER BY sale_month ASC;`}</code>
               </div>
 
               <div className="space-y-3">
-                {ebooks.slice(0, 5).map((book, idx) => {
-                  const salesCount = [8, 7, 6, 5, 4][idx] || 3
-                  const totalBookRevenue = book.price * salesCount
+                {topSellingBooksReport.map((book, idx) => {
                   return (
                     <div key={book.ebook_id} className="flex justify-between items-center p-3.5 rounded-2xl bg-gray-50 border border-gray-100 text-xs hover:bg-emerald-50/40 transition">
                       <div className="flex items-center gap-3">
@@ -1424,12 +1582,12 @@ ORDER BY sale_month ASC;`}</code>
                         </span>
                         <div>
                           <p className="font-bold text-gray-900 text-xs sm:text-sm">{book.title}</p>
-                          <p className="text-gray-500">ราคาเล่มละ ฿{book.price} | ✍️ {book.author || 'ดร. ธนวัฒน์ หาญณรงค์'}</p>
+                          <p className="text-gray-500">ราคาเล่มละ ฿{book.price} | ✍️ {book.author_name}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="font-black text-emerald-600 text-sm">฿{totalBookRevenue.toFixed(2)}</p>
-                        <p className="text-gray-600 font-bold">{salesCount} เล่ม (SUM Quantity)</p>
+                        <p className="font-black text-emerald-600 text-sm">฿{book.total_revenue.toFixed(2)}</p>
+                        <p className="text-gray-600 font-bold">{book.total_copies_sold} เล่ม (SUM Quantity)</p>
                       </div>
                     </div>
                   )
@@ -1477,24 +1635,20 @@ ORDER BY total_copies_sold DESC LIMIT 5;`}</code>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {categories.map((c, i) => {
-                      const ratio = [0.38, 0.26, 0.22, 0.14][i] || 0.2
-                      const catOrders = [11, 8, 7, 4][i] || 5
-                      const catItems = [14, 10, 8, 5][i] || 6
-                      const catRevenue = totalRevenue * ratio
+                    {categorySalesReport.map(c => {
                       return (
                         <tr key={c.category_id} className="hover:bg-violet-50/40 transition">
                           <td className="p-3.5 font-mono font-bold text-gray-500">#{c.category_id}</td>
                           <td className="p-3.5 font-bold text-gray-800">{c.category_name}</td>
-                          <td className="p-3.5 text-center font-semibold text-gray-700">{catOrders} คำสั่งซื้อ</td>
-                          <td className="p-3.5 text-center font-bold text-indigo-700">{catItems} เล่ม</td>
+                          <td className="p-3.5 text-center font-semibold text-gray-700">{c.total_orders} คำสั่งซื้อ</td>
+                          <td className="p-3.5 text-center font-bold text-indigo-700">{c.total_items_sold} เล่ม</td>
                           <td className="p-3.5 text-center">
                             <span className="bg-violet-50 text-violet-700 px-2.5 py-1 rounded-full font-bold border border-violet-200">
-                              {(ratio * 100).toFixed(0)}%
+                              {c.ratio}%
                             </span>
                           </td>
                           <td className="p-3.5 font-black text-emerald-600 text-right text-sm">
-                            ฿{catRevenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            ฿{c.total_category_revenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                           </td>
                         </tr>
                       )
