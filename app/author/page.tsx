@@ -130,9 +130,25 @@ export default function AuthorPage() {
     setIsAuthorOrAdmin(authorized)
 
     if (authorized) {
-      // 1. โหลดหมวดหมู่
-      const { data: catData } = await supabase.from('categories').select('*')
-      if (catData && catData.length > 0) setCategories(catData)
+      // 1. โหลดหมวดหมู่ (Supabase + LocalStorage Dual Persistence)
+      const { data: catData } = await supabase.from('categories').select('*').order('category_id', { ascending: true })
+      let mergedCats = catData && catData.length > 0 ? [...catData] : [
+        { category_id: 1, category_name: 'Next.js & Supabase' },
+        { category_id: 2, category_name: 'TypeScript & Frontend' },
+        { category_id: 3, category_name: 'Database & Backend' },
+        { category_id: 4, category_name: 'UI/UX Design' }
+      ]
+      try {
+        const localCats = JSON.parse(localStorage.getItem('gusso_custom_categories') || '[]')
+        localCats.forEach((lc: any) => {
+          if (!mergedCats.some((c: any) => c.category_id === lc.category_id || c.category_name.toLowerCase() === lc.category_name.toLowerCase())) {
+            mergedCats.push(lc)
+          }
+        })
+      } catch (err) {
+        // ignore
+      }
+      setCategories(mergedCats)
 
       // 2. โหลดหนังสือที่ผู้แต่งคนนี้ส่งมา (หรือทั้งหมดถ้าเป็นแอดมิน) จาก Supabase
       let booksData: any[] = []

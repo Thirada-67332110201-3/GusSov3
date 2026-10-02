@@ -305,11 +305,30 @@ export default function AdminDashboard() {
 
       setEbooks(enrichedEbooks)
 
-      // 2. ดึงข้อมูลหมวดหมู่
-      const { data: catData } = await supabase.from('categories').select('*')
-      if (catData && catData.length > 0) {
-        setCategories(catData)
+      // 2. ดึงข้อมูลหมวดหมู่ (ผสาน Supabase และ LocalStorage)
+      const { data: catData } = await supabase.from('categories').select('*').order('category_id', { ascending: true })
+      let allCategories: Category[] = catData && catData.length > 0 ? [...catData] : [
+        { category_id: 1, category_name: 'Next.js & Supabase' },
+        { category_id: 2, category_name: 'TypeScript & Frontend' },
+        { category_id: 3, category_name: 'Database & Backend' },
+        { category_id: 4, category_name: 'UI/UX Design' }
+      ]
+
+      try {
+        const localCats: Category[] = JSON.parse(localStorage.getItem('gusso_custom_categories') || '[]')
+        localCats.forEach(lc => {
+          const existingIdx = allCategories.findIndex(c => c.category_id === lc.category_id || c.category_name.toLowerCase() === lc.category_name.toLowerCase())
+          if (existingIdx >= 0) {
+            allCategories[existingIdx] = { ...allCategories[existingIdx], ...lc }
+          } else {
+            allCategories.push(lc)
+          }
+        })
+      } catch (e) {
+        // ignore
       }
+
+      setCategories(allCategories)
 
       // 3. ดึงข้อมูลผู้ใช้งานจากตาราง users
       const { data: userData } = await supabase.from('users').select('*').order('created_at', { ascending: false })
@@ -464,52 +483,101 @@ export default function AdminDashboard() {
     }
   }
 
-  // ฟังก์ชันเพิ่มหนังสือใหม่
+  // ฟังก์ชันเพิ่มหนังสือใหม่ (Dual Persistence: Supabase Database + LocalStorage)
   const handleAddBook = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newTitle || !newPrice) {
-      alert('กรุณากรอกชื่อหนังสือและราคา')
+    const trimmedTitle = newTitle.trim()
+    const trimmedPrice = newPrice.trim()
+    const trimmedAuthor = newAuthor.trim()
+    const trimmedDesc = newDesc.trim()
+    const trimmedCover = newCover.trim() || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=60'
+
+    if (!trimmedTitle || !trimmedPrice) {
+      alert('⚠️ กรุณากรอกชื่อหนังสือและราคาขาย')
       return
     }
 
-    const newBookPayload = {
-      title: newTitle,
-      price: parseFloat(newPrice),
-      description: newDesc,
-      cover_image: newCover || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500&auto=format&fit=crop&q=60',
-      author: newAuthor || 'ดร. ธนวัฒน์ & อ. ธีรดา',
-      category_id: parseInt(newCategoryId),
+    const priceNum = parseFloat(trimmedPrice)
+    if (isNaN(priceNum) || priceNum < 0) {
+      alert('⚠️ กรุณาระบุราคาที่ถูกต้อง (ตัวเลขมากกว่าหรือเท่ากับ 0)')
+      return
+    }
+
+    // 1. ตรวจสอบหรือสร้างรหัสผู้แต่ง (author_id) ให้ตรงกับ Foreign Key ของตาราง ebooks
+    let finalAuthorId = 1
+    if (trimmedAuthor) {
+      const existingAuthor = authors.find(a => a.author_name.toLowerCase() === trimmedAuthor.toLowerCase())
+      if (existingAuthor) {
+        finalAuthorId = existingAuthor.author_id
+      } else {
+        const nextAuthorId = Math.max(...authors.map(a => a.author_id), 0) + 1
+        try {
+          const { data: newAuthData, error: authErr } = await supabase
+            .from('authors')
+            .insert([{ author_id: nextAuthorId, author_name: trimmedAuthor }])
+            .select()
+          if (!authErr && newAuthData && newAuthData.length > 0) {
+            finalAuthorId = newAuthData[0].author_id
+            setAuthors(prev => [...prev, newAuthData[0]])
+          } else {
+            finalAuthorId = nextAuthorId
+            setAuthors(prev => [...prev, { author_id: nextAuthorId, author_name: trimmedAuthor }])
+          }
+        } catch (err) {
+          finalAuthorId = 1
+        }
+      }
+    }
+
+    const displayAuthor = trimmedAuthor || authors.find(a => a.author_id === finalAuthorId)?.author_name || 'ดร. ธนวัฒน์ หาญณรงค์'
+
+    // 2. ข้อมูลสำหรับตาราง ebooks ใน Supabase (ตามสกีมา DB: title, price, description, cover_image, author_id, category_id, is_active, approval_status, stock_status)
+    const dbPayload = {
+      title: trimmedTitle,
+      price: priceNum,
+      description: trimmedDesc,
+      cover_image: trimmedCover,
+      author_id: finalAuthorId,
+      category_id: parseInt(newCategoryId) || 1,
       is_active: true,
-      approval_status: 'approved',
+      approval_status: 'approved' as const,
       stock_status: 'พร้อมจำหน่าย'
     }
 
-    let createdBook = {
-      ...newBookPayload,
+    let createdBook: Ebook = {
       ebook_id: Date.now(),
+      ...dbPayload,
+      author: displayAuthor,
       rating: 5.0,
       total_reviews: 1
     }
 
+    // 3. บันทึกลง Supabase Database
     try {
-      const { data, error } = await supabase.from('ebooks').insert([newBookPayload]).select()
+      const { data, error } = await supabase.from('ebooks').insert([dbPayload]).select()
       if (!error && data && data.length > 0) {
-        createdBook = { ...createdBook, ...data[0] }
+        createdBook = {
+          ...createdBook,
+          ...data[0],
+          author: displayAuthor
+        }
+      } else if (error) {
+        console.warn('Supabase DB notice:', error.message)
       }
-    } catch (e) {
-      console.warn('DB insert notice:', e)
+    } catch (err) {
+      console.warn('DB insert exception:', err)
     }
 
-    // บันทึกลง LocalStorage ด้วย
+    // 4. บันทึกลง LocalStorage (Dual Persistence Bridge เพื่อให้หน้าร้านแสดงทันที 100%)
     try {
       const savedBooks: any[] = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
-      localStorage.setItem('gusso_submitted_books', JSON.stringify([createdBook, ...savedBooks.filter(b => b.title !== newTitle)]))
+      localStorage.setItem('gusso_submitted_books', JSON.stringify([createdBook, ...savedBooks.filter(b => b.title !== trimmedTitle)]))
     } catch (e) {
       // ignore
     }
 
-    alert('🎉 เพิ่มหนังสือใหม่สำเร็จเรียบร้อยแล้ว!')
-    setEbooks(prev => [createdBook as Ebook, ...prev])
+    alert(`🎉 เพิ่มหนังสือ "${createdBook.title}" สำเร็จเรียบร้อยแล้ว!\nระบบได้บันทึกข้อมูลและวางจำหน่ายในหน้าร้านทันที`)
+    setEbooks(prev => [createdBook, ...prev])
     setNewTitle('')
     setNewPrice('')
     setNewAuthor('')
@@ -517,23 +585,50 @@ export default function AdminDashboard() {
     setNewCover('')
   }
 
-  // ฟังก์ชันเพิ่มหมวดหมู่ใหม่
+  // ฟังก์ชันเพิ่มหมวดหมู่ใหม่ (Dual Persistence: Supabase Database + LocalStorage)
   const handleAddCategory = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newCategoryName.trim()) return
+    const trimmed = newCategoryName.trim()
+    if (!trimmed) {
+      alert('⚠️ กรุณากรอกชื่อหมวดหมู่หนังสือ')
+      return
+    }
 
-    const newId = categories.length + 1
-    const newCat = { category_id: newId, category_name: newCategoryName.trim() }
+    if (categories.some(c => c.category_name.toLowerCase() === trimmed.toLowerCase())) {
+      alert(`⚠️ หมวดหมู่ "${trimmed}" มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น`)
+      return
+    }
 
+    const nextId = Math.max(...categories.map(c => c.category_id), 0) + 1
+    let newCat: Category = { category_id: nextId, category_name: trimmed }
+
+    // 1. บันทึกลง Supabase Database
     try {
-      await supabase.from('categories').insert([newCat])
+      const { data, error } = await supabase
+        .from('categories')
+        .insert([{ category_id: nextId, category_name: trimmed }])
+        .select()
+      if (!error && data && data.length > 0) {
+        newCat = data[0]
+      } else if (error) {
+        console.warn('Supabase category insert notice:', error.message)
+      }
+    } catch (e) {
+      console.warn('DB category insert exception:', e)
+    }
+
+    // 2. บันทึกลง LocalStorage
+    try {
+      const savedCats: Category[] = JSON.parse(localStorage.getItem('gusso_custom_categories') || '[]')
+      const merged = [...savedCats.filter(c => c.category_id !== newCat.category_id && c.category_name.toLowerCase() !== newCat.category_name.toLowerCase()), newCat]
+      localStorage.setItem('gusso_custom_categories', JSON.stringify(merged))
     } catch (e) {
       // ignore
     }
 
-    setCategories([...categories, newCat])
+    setCategories(prev => [...prev, newCat])
     setNewCategoryName('')
-    alert(`เพิ่มหมวดหมู่ "${newCat.category_name}" เรียบร้อยแล้ว!`)
+    alert(`🎉 เพิ่มหมวดหมู่ "${newCat.category_name}" เรียบร้อยแล้ว! พร้อมใช้งานทั้งในหน้าแอดมินและหน้าร้าน`)
   }
 
   // ฟังก์ชันเปิด Modal แก้ไขหนังสือ
@@ -551,18 +646,46 @@ export default function AdminDashboard() {
     e.preventDefault()
     if (!editingBook) return
     const priceNum = parseFloat(editPrice)
-    const updated = {
-      title: editTitle,
-      price: priceNum,
-      author: editAuthor,
-      category_id: parseInt(editCategoryId),
-      description: editDesc
+    const trimmedTitle = editTitle.trim()
+    const trimmedAuthor = editAuthor.trim()
+
+    let finalAuthorId = editingBook.author_id || 1
+    if (trimmedAuthor) {
+      const match = authors.find(a => a.author_name.toLowerCase() === trimmedAuthor.toLowerCase())
+      if (match) {
+        finalAuthorId = match.author_id
+      }
     }
 
+    const updated = {
+      title: trimmedTitle,
+      price: isNaN(priceNum) ? editingBook.price : priceNum,
+      author: trimmedAuthor || editingBook.author || 'ดร. ธนวัฒน์ หาญณรงค์',
+      author_id: finalAuthorId,
+      category_id: parseInt(editCategoryId) || 1,
+      description: editDesc.trim()
+    }
+
+    // อัปเดตลง Supabase Database
     try {
-      await supabase.from('ebooks').update(updated).eq('ebook_id', editingBook.ebook_id)
+      await supabase.from('ebooks').update({
+        title: updated.title,
+        price: updated.price,
+        author_id: updated.author_id,
+        category_id: updated.category_id,
+        description: updated.description
+      }).eq('ebook_id', editingBook.ebook_id)
     } catch (err) {
-      console.error(err)
+      console.warn('DB update notice:', err)
+    }
+
+    // อัปเดตลง LocalStorage
+    try {
+      const savedBooks: any[] = JSON.parse(localStorage.getItem('gusso_submitted_books') || '[]')
+      const updatedLocal = savedBooks.map(b => b.ebook_id === editingBook.ebook_id ? { ...b, ...updated } : b)
+      localStorage.setItem('gusso_submitted_books', JSON.stringify(updatedLocal))
+    } catch (e) {
+      // ignore
     }
 
     setEbooks(ebooks.map(b => b.ebook_id === editingBook.ebook_id ? { ...b, ...updated } : b))
@@ -580,12 +703,29 @@ export default function AdminDashboard() {
   const handleSaveEditCategory = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingCategory) return
+    const trimmed = editCategoryName.trim()
+    if (!trimmed) return
+
+    // อัปเดตลง Supabase Database
     try {
-      await supabase.from('categories').update({ category_name: editCategoryName.trim() }).eq('category_id', editingCategory.category_id)
+      await supabase.from('categories').update({ category_name: trimmed }).eq('category_id', editingCategory.category_id)
     } catch (err) {
-      console.error(err)
+      console.warn('DB category update notice:', err)
     }
-    setCategories(categories.map(c => c.category_id === editingCategory.category_id ? { ...c, category_name: editCategoryName.trim() } : c))
+
+    // อัปเดตลง LocalStorage
+    try {
+      const savedCats: Category[] = JSON.parse(localStorage.getItem('gusso_custom_categories') || '[]')
+      const updatedLocal = savedCats.map(c => c.category_id === editingCategory.category_id ? { ...c, category_name: trimmed } : c)
+      if (!savedCats.some(c => c.category_id === editingCategory.category_id)) {
+        updatedLocal.push({ category_id: editingCategory.category_id, category_name: trimmed })
+      }
+      localStorage.setItem('gusso_custom_categories', JSON.stringify(updatedLocal))
+    } catch (e) {
+      // ignore
+    }
+
+    setCategories(categories.map(c => c.category_id === editingCategory.category_id ? { ...c, category_name: trimmed } : c))
     setEditingCategory(null)
     alert('🎉 อัปเดตชื่อหมวดหมู่เรียบร้อยแล้ว!')
   }
@@ -1764,11 +1904,11 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                 <select
                   value={orderMonthFilter}
                   onChange={(e) => setOrderMonthFilter(e.target.value)}
-                  className="border rounded-xl text-xs px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="border border-slate-200 rounded-xl text-xs px-3 py-2 bg-white text-slate-800 font-medium outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs cursor-pointer"
                 >
-                  <option value="all">ทุกเดือน (ทั้งหมด)</option>
+                  <option value="all" className="text-slate-800 bg-white font-medium">ทุกเดือน (ทั้งหมด)</option>
                   {monthlySummaries.map(m => (
-                    <option key={m.key} value={m.key}>{m.name}</option>
+                    <option key={m.key} value={m.key} className="text-slate-800 bg-white">{m.name}</option>
                   ))}
                 </select>
 
@@ -1776,23 +1916,23 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                 <select
                   value={orderStatusFilter}
                   onChange={(e) => setOrderStatusFilter(e.target.value)}
-                  className="border rounded-xl text-xs px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="border border-slate-200 rounded-xl text-xs px-3 py-2 bg-white text-slate-800 font-medium outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs cursor-pointer"
                 >
-                  <option value="all">ทุกสถานะ</option>
-                  <option value="ยืนยันแล้ว">ยืนยันแล้ว</option>
-                  <option value="รอชำระ">รอชำระ</option>
-                  <option value="ยกเลิก">ยกเลิก</option>
+                  <option value="all" className="text-slate-800 bg-white font-medium">ทุกสถานะ</option>
+                  <option value="ยืนยันแล้ว" className="text-slate-800 bg-white">ยืนยันแล้ว</option>
+                  <option value="รอชำระ" className="text-slate-800 bg-white">รอชำระ</option>
+                  <option value="ยกเลิก" className="text-slate-800 bg-white">ยกเลิก</option>
                 </select>
 
                 {/* ช่องค้นหา */}
                 <div className="relative flex-1 sm:w-60">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchOrderQuery}
                     onChange={(e) => setSearchOrderQuery(e.target.value)}
                     placeholder="ค้นหาอีเมลหรือรหัส..."
-                    className="w-full pl-9 pr-3 py-2 border rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs bg-white text-slate-800 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                   />
                 </div>
               </div>
@@ -1869,73 +2009,81 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
 
               <form onSubmit={handleAddBook} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">ชื่อหนังสือ</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ชื่อหนังสือ <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
                     placeholder="เช่น AI Engineering with Python"
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">ราคา (บาท)</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ราคาขาย (บาท) <span className="text-red-500">*</span></label>
                   <input
                     type="number"
                     value={newPrice}
                     onChange={(e) => setNewPrice(e.target.value)}
                     placeholder="เช่น 350"
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    min="0"
+                    step="1"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">ผู้แต่ง</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ชื่อผู้แต่ง / นามปากกา</label>
                   <input
                     type="text"
+                    list="admin-authors-list"
                     value={newAuthor}
                     onChange={(e) => setNewAuthor(e.target.value)}
-                    placeholder="เช่น ดร. ธนวัฒน์ & อ. ธีรดา"
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="เลือกหรือพิมพ์ชื่อผู้แต่ง เช่น ดร. ธนวัฒน์ หาญณรงค์"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                   />
+                  <datalist id="admin-authors-list">
+                    {authors.map(a => (
+                      <option key={a.author_id} value={a.author_name} />
+                    ))}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">หมวดหมู่</label>
                   <select
                     value={newCategoryId}
                     onChange={(e) => setNewCategoryId(e.target.value)}
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                    className="w-full border border-slate-200 bg-white text-slate-900 font-medium rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs cursor-pointer"
                   >
                     {categories.map((c) => (
-                      <option key={c.category_id} value={c.category_id}>{c.category_name}</option>
+                      <option key={c.category_id} value={c.category_id} className="text-slate-900 bg-white">{c.category_name}</option>
                     ))}
                   </select>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">URL ภาพปกหนังสือ</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ลิงก์ URL รูปภาพหน้าปก (Cover URL)</label>
                   <input
                     type="url"
                     value={newCover}
                     onChange={(e) => setNewCover(e.target.value)}
-                    placeholder="https://images.unsplash.com/..."
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    placeholder="https://images.unsplash.com/photo-..."
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">คำอธิบายหนังสือโดยย่อ</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">คำอธิบายเนื้อหาย่อ</label>
                   <textarea
                     value={newDesc}
                     onChange={(e) => setNewDesc(e.target.value)}
-                    placeholder="สรุปเนื้อหาสำคัญของหนังสือ..."
+                    placeholder="สรุปเนื้อหาสำคัญของหนังสือ จุดเด่น และสิ่งที่จะได้เรียนรู้..."
                     rows={2}
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                   />
                 </div>
                 <div className="md:col-span-2">
                   <button
                     type="submit"
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl text-xs transition shadow-sm"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl text-xs transition shadow-sm cursor-pointer"
                   >
                     + บันทึกและวางจำหน่ายทันที
                   </button>
@@ -2033,12 +2181,12 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
                   placeholder="เช่น Cloud Computing, AI & Machine Learning"
-                  className="flex-1 border rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="flex-1 border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                   required
                 />
                 <button
                   type="submit"
-                  className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-indigo-700 transition"
+                  className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-indigo-700 transition shrink-0 shadow-sm cursor-pointer"
                 >
                   + เพิ่มหมวดหมู่
                 </button>
@@ -2639,24 +2787,24 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
 
               <form onSubmit={handleSaveEditBook} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">ชื่อหนังสือ</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">ชื่อหนังสือ <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                     required
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">ราคา (บาท)</label>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">ราคา (บาท) <span className="text-red-500">*</span></label>
                     <input
                       type="number"
                       value={editPrice}
                       onChange={(e) => setEditPrice(e.target.value)}
-                      className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                       required
                     />
                   </div>
@@ -2665,10 +2813,10 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                     <select
                       value={editCategoryId}
                       onChange={(e) => setEditCategoryId(e.target.value)}
-                      className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                      className="w-full border border-slate-200 bg-white text-slate-900 font-medium rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs cursor-pointer"
                     >
                       {categories.map((c) => (
-                        <option key={c.category_id} value={c.category_id}>{c.category_name}</option>
+                        <option key={c.category_id} value={c.category_id} className="text-slate-900 bg-white">{c.category_name}</option>
                       ))}
                     </select>
                   </div>
@@ -2680,7 +2828,7 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                     type="text"
                     value={editAuthor}
                     onChange={(e) => setEditAuthor(e.target.value)}
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                   />
                 </div>
 
@@ -2690,7 +2838,7 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                     value={editDesc}
                     onChange={(e) => setEditDesc(e.target.value)}
                     rows={2}
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                   />
                 </div>
 
@@ -2698,13 +2846,13 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                   <button
                     type="button"
                     onClick={() => setEditingBook(null)}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-xs transition"
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 rounded-xl text-xs transition cursor-pointer"
                   >
                     ยกเลิก
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm"
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm cursor-pointer"
                   >
                     บันทึกการแก้ไข
                   </button>
@@ -2732,7 +2880,7 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                     type="text"
                     value={editCategoryName}
                     onChange={(e) => setEditCategoryName(e.target.value)}
-                    className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                     required
                   />
                 </div>
@@ -2741,7 +2889,7 @@ ORDER BY total_spent DESC, total_orders DESC;`}</code>
                   <button
                     type="button"
                     onClick={() => setEditingCategory(null)}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 rounded-xl text-xs transition"
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 rounded-xl text-xs transition cursor-pointer"
                   >
                     ยกเลิก
                   </button>

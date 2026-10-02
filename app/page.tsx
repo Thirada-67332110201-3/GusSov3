@@ -48,12 +48,13 @@ export default function Home() {
   const router = useRouter()
   
   // กำหนดหมวดหมู่มาตรฐาน
-  const categories: Category[] = [
+  const defaultCategories: Category[] = [
     { category_id: 1, category_name: 'Next.js & Supabase' },
     { category_id: 2, category_name: 'TypeScript & Frontend' },
     { category_id: 3, category_name: 'Database & Backend' },
     { category_id: 4, category_name: 'UI/UX Design' }
   ]
+  const [categories, setCategories] = useState<Category[]>(defaultCategories)
 
   // รายการหนังสือมาตรฐานทั้ง 13 เล่มที่หลากหลาย ไม่ซ้ำกัน
   const defaultEbooks: Ebook[] = Object.entries(UNIQUE_EBOOKS_METADATA).map(([id, meta]) => ({
@@ -244,6 +245,28 @@ export default function Home() {
       // กรองเฉพาะหนังสือที่ได้รับ "อนุมัติ" และเปิดจำหน่าย (is_active = true) เท่านั้น
       const approvedOnly = allBooks.filter(b => b.approval_status === 'approved' && b.is_active === true)
       setEbooks(approvedOnly)
+
+      // โหลดหมวดหมู่จาก Supabase และ LocalStorage (Dual Persistence Bridge)
+      try {
+        const { data: catData } = await supabase.from('categories').select('*').order('category_id', { ascending: true })
+        let mergedCats: Category[] = catData && catData.length > 0 ? [...catData] : [...defaultCategories]
+        try {
+          const localCats: Category[] = JSON.parse(localStorage.getItem('gusso_custom_categories') || '[]')
+          localCats.forEach(lc => {
+            const idx = mergedCats.findIndex(c => c.category_id === lc.category_id || c.category_name.toLowerCase() === lc.category_name.toLowerCase())
+            if (idx >= 0) {
+              mergedCats[idx] = { ...mergedCats[idx], ...lc }
+            } else {
+              mergedCats.push(lc)
+            }
+          })
+        } catch (err) {
+          // ignore
+        }
+        setCategories(mergedCats)
+      } catch (err) {
+        console.warn('Error loading categories in homepage:', err)
+      }
     } catch (e) {
       console.error(e)
     } finally {
