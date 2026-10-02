@@ -470,26 +470,10 @@ export default function OrdersPage() {
                         ยืนยันแล้ว
                       </span>
                     ) : ord.status === 'รอชำระ' ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-2xs">
-                          <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          รอชำระเงิน
-                        </span>
-                        <button
-                          onClick={() => setPayingOrder(ord)}
-                          className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer hover:scale-105 active:scale-95"
-                          title="สแกน QR Code เพื่อชำระเงิน"
-                        >
-                          💳 ชำระเงินตอนนี้
-                        </button>
-                        <button
-                          onClick={() => handleCancelOrder(ord)}
-                          className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer hover:scale-105 active:scale-95"
-                          title="ยกเลิกคำสั่งซื้อนี้"
-                        >
-                          ✕ ยกเลิกคำสั่งซื้อ
-                        </button>
-                      </div>
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-100 px-3 py-1 rounded-full shadow-2xs">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        รอชำระเงิน
+                      </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-100 px-3 py-1 rounded-full shadow-2xs">
                         ✕ ยกเลิกแล้ว
@@ -529,53 +513,61 @@ export default function OrdersPage() {
                         </div>
                       </div>
 
-                      <div className="w-full sm:w-auto flex sm:flex-col items-center sm:items-end justify-between gap-2 pt-2 sm:pt-0">
-                        {ord.status === 'ยืนยันแล้ว' ? (
+                      {/* สิทธิ์ดาวน์โหลดเฉพาะเมื่อบิลยืนยันแล้ว */}
+                      {ord.status === 'ยืนยันแล้ว' && (
+                        <div className="w-full sm:w-auto flex items-center justify-end pt-2 sm:pt-0">
                           <Link
                             href={`/download?ebook_id=${item.ebook_id}`}
-                            className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm transition hover:scale-105 active:scale-95 cursor-pointer"
+                            className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition hover:scale-105 active:scale-95 cursor-pointer"
                           >
                             <Download className="w-3.5 h-3.5" />
                             ดาวน์โหลด E-Book
                           </Link>
-                        ) : ord.status === 'รอชำระ' ? (
-                          <div className="text-right flex flex-col items-end gap-1.5">
-                            <div className="flex flex-wrap items-center justify-end gap-2">
-                              <Link
-                                href={`/checkout?order_id=${ord.order_id}`}
-                                className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
-                                title="เปิดหน้าชำระเงินเต็มรูปแบบ"
-                              >
-                                <CreditCard className="w-3.5 h-3.5" />
-                                <span>💳 ไปหน้าชำระเงิน</span>
-                              </Link>
-                              <button
-                                onClick={() => setPayingOrder(ord)}
-                                className="inline-flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
-                                title="สแกน QR ด่วนที่หน้านี้"
-                              >
-                                <Clock className="w-3.5 h-3.5" />
-                                <span>สแกนด่วน</span>
-                              </button>
-                              <button
-                                onClick={() => handleCancelOrder(ord)}
-                                className="inline-flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer hover:scale-105 active:scale-95"
-                                title="ยกเลิกคำสั่งซื้อ"
-                              >
-                                <span>✕ ยกเลิก</span>
-                              </button>
-                            </div>
-                            <span className="block text-[10px] text-amber-600 font-medium">🔒 ชำระเงินเพื่อปลดล็อคดาวน์โหลด</span>
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-600 px-3.5 py-2 rounded-xl text-xs font-bold">
-                            <span>🚫 คำสั่งซื้อถูกยกเลิกแล้ว</span>
-                          </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
+
+                {/* แถบสรุปและการชำระเงินเพียงจุดเดียว สำหรับทั้งคำสั่งซื้อ */}
+                {ord.status === 'รอชำระ' && (
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50/50 p-4 border-t border-amber-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs text-amber-900">
+                      <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>ยอดค้างชำระทั้งบิล <strong>฿{ord.total_amount.toFixed(2)} บาท</strong> ({ord.items.length} เล่ม)</span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+                      <button
+                        onClick={() => handleCancelOrder(ord)}
+                        className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition cursor-pointer"
+                        title="ยกเลิกคำสั่งซื้อนี้"
+                      >
+                        ✕ ยกเลิกคำสั่งซื้อ
+                      </button>
+
+                      <button
+                        onClick={() => setPayingOrder(ord)}
+                        className="bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                        title="สแกน QR Code ชำระเงินด่วนที่หน้านี้"
+                      >
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>สแกน QR ด่วน</span>
+                      </button>
+
+                      <a
+                        href={`/checkout?order_id=${ord.order_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-md shadow-emerald-200 cursor-pointer transform hover:scale-105 active:scale-95"
+                        title="เปิดหน้าชำระเงินเต็มรูปแบบในแท็บใหม่"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>ชำระเงินทั้งบิล ฿{ord.total_amount.toFixed(2)} (แท็บใหม่) ↗</span>
+                      </a>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
