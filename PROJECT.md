@@ -12,7 +12,7 @@
 | ลำดับ | รหัสนักศึกษา | ชื่อ - นามสกุล | อีเมลมหาวิทยาลัย | บทบาทหน้าที่ |
 | :---: | :---: | :--- | :--- | :--- |
 | 1 | **67332110201-3** | **นางสาว ธีรดา โหลทอง (Thirada Loathong)** | `thirada.lo@rmuti.ac.th` | Full-stack Developer, Database Design & UI/UX |
-| 2 | - | **นาย ธนวัฒน์ หาญณรงค์ (Thanawat Hannarong)** | `thanawat.hn@rmuti.ac.th` | Database Architect, Backend & SQL Analytics |
+| 2 | **67332110040-7** | **นาย ธนวัฒน์ หาญณรงค์ (Thanawat Hannarong)** | `thanawat.hn@rmuti.ac.th` | Database Architect, Backend & SQL Analytics |
 
 ---
 
