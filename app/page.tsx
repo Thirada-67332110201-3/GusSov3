@@ -692,18 +692,9 @@ export default function Home() {
 
             <ThemeToggleCyberpunk />
 
-            <Link
-              href="/checkout"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition border border-emerald-200 shadow-xs"
-              title="ไปยังหน้าชำระเงิน (Checkout)"
-            >
-              <CreditCard className="w-4 h-4 text-emerald-600" />
-              <span>ชำระเงิน</span>
-            </Link>
-
             <button
               onClick={() => { setIsCartOpen(true); setStep('cart'); }}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition flex items-center gap-2 shadow-sm"
+              className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition flex items-center gap-2 shadow-sm cursor-pointer"
             >
               🛒 ตะกร้า ({cart.reduce((sum, item) => sum + item.quantity, 0)})
             </button>
@@ -1298,15 +1289,23 @@ export default function Home() {
                         />
                       </div>
                       <div className="space-y-2 pt-1">
-                        <Link
-                          href="/checkout"
-                          onClick={() => setIsCartOpen(false)}
-                          className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white py-3.5 rounded-xl hover:from-emerald-700 hover:to-teal-700 transition font-bold text-sm shadow-md flex items-center justify-center gap-2"
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try {
+                              localStorage.setItem('gusso_cart', JSON.stringify(cart))
+                            } catch (e) {
+                              console.warn('Sync cart error:', e)
+                            }
+                            window.open('/checkout', '_blank')
+                            setIsCartOpen(false)
+                          }}
+                          className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-3.5 px-4 rounded-xl transition font-bold text-sm shadow-md flex items-center justify-center gap-2 cursor-pointer transform hover:scale-[1.01] active:scale-[0.99]"
                         >
                           <CreditCard className="w-4 h-4" />
-                          <span>ไปยังหน้าชำระเงินเต็มรูปแบบ (แท็บใหม่)</span>
+                          <span>ชำระเงิน ฿{totalPrice.toFixed(2)} (เปิดแท็บใหม่)</span>
                           <ArrowRight className="w-4 h-4" />
-                        </Link>
+                        </button>
 
                         <button
                           type="submit"
