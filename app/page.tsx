@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import emailjs from '@emailjs/browser'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare, Clock, Flame, Sparkles, Tag } from 'lucide-react'
+import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare, Clock, Flame, Sparkles, Tag, CreditCard, ArrowRight, QrCode } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA, BookReview } from '@/lib/books-data'
 import { getWeeklyPeriodInfo, getBookPromotionPricing, WeeklyPromotionCampaign } from '@/lib/promotions'
 
@@ -386,6 +386,29 @@ export default function Home() {
     return () => clearInterval(timer)
   }, [])
 
+  // ซิงค์ตะกร้าสินค้ากับ localStorage เพื่อให้หน้าแท็บชำระเงิน (/checkout) นำไปแสดงผลได้ทันที
+  useEffect(() => {
+    try {
+      const savedCart = localStorage.getItem('gusso_cart')
+      if (savedCart) {
+        const parsed = JSON.parse(savedCart)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCart(parsed)
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gusso_cart', JSON.stringify(cart))
+    } catch (e) {
+      // ignore
+    }
+  }, [cart])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     setUser(null)
@@ -625,6 +648,15 @@ export default function Home() {
           </Link>
           
           <div className="flex items-center gap-3">
+            <Link
+              href="/checkout"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition border border-emerald-200 shadow-xs"
+              title="ไปยังหน้าชำระเงิน (Checkout)"
+            >
+              <CreditCard className="w-4 h-4 text-emerald-600" />
+              <span>ชำระเงิน</span>
+            </Link>
+
             <button
               onClick={() => { setIsCartOpen(true); setStep('cart'); }}
               className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition flex items-center gap-2 shadow-sm"
@@ -1146,12 +1178,25 @@ export default function Home() {
                           required
                         />
                       </div>
-                      <button
-                        type="submit"
-                        className="w-full bg-emerald-600 text-white py-3.5 rounded-xl hover:bg-emerald-700 transition font-semibold text-sm shadow-md"
-                      >
-                        💳 ไปยังหน้าชำระเงิน (QR Code)
-                      </button>
+                      <div className="space-y-2 pt-1">
+                        <Link
+                          href="/checkout"
+                          onClick={() => setIsCartOpen(false)}
+                          className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white py-3.5 rounded-xl hover:from-emerald-700 hover:to-teal-700 transition font-bold text-sm shadow-md flex items-center justify-center gap-2"
+                        >
+                          <CreditCard className="w-4 h-4" />
+                          <span>ไปยังหน้าชำระเงินเต็มรูปแบบ (แท็บใหม่)</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </Link>
+
+                        <button
+                          type="submit"
+                          className="w-full bg-slate-100 text-slate-700 py-2.5 rounded-xl hover:bg-slate-200 transition font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <QrCode className="w-3.5 h-3.5 text-slate-500" />
+                          <span>หรือสแกน QR Code ด่วนที่หน้านี้</span>
+                        </button>
+                      </div>
                     </form>
                   </div>
                 )}

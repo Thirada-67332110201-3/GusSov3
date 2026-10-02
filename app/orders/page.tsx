@@ -7,7 +7,8 @@ import { useRouter } from 'next/navigation'
 import emailjs from '@emailjs/browser'
 import { 
   ArrowLeft, Download, ShoppingBag, CheckCircle, BookOpen, 
-  Lock, Clock, Layers, Calendar, DollarSign, PackageCheck, X
+  Lock, Clock, Layers, Calendar, DollarSign, PackageCheck, X,
+  CreditCard, ExternalLink
 } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA } from '@/lib/books-data'
 
@@ -539,13 +540,22 @@ export default function OrdersPage() {
                           </Link>
                         ) : ord.status === 'รอชำระ' ? (
                           <div className="text-right flex flex-col items-end gap-1.5">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <Link
+                                href={`/checkout?order_id=${ord.order_id}`}
+                                className="inline-flex items-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                                title="เปิดหน้าชำระเงินเต็มรูปแบบ"
+                              >
+                                <CreditCard className="w-3.5 h-3.5" />
+                                <span>💳 ไปหน้าชำระเงิน</span>
+                              </Link>
                               <button
                                 onClick={() => setPayingOrder(ord)}
-                                className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                                className="inline-flex items-center gap-1 bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:scale-105 active:scale-95"
+                                title="สแกน QR ด่วนที่หน้านี้"
                               >
                                 <Clock className="w-3.5 h-3.5" />
-                                <span>💳 สแกนจ่าย ฿{ord.total_amount.toFixed(2)}</span>
+                                <span>สแกนด่วน</span>
                               </button>
                               <button
                                 onClick={() => handleCancelOrder(ord)}
