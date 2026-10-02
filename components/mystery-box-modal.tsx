@@ -4,24 +4,27 @@ import React, { useState, useEffect } from 'react'
 import { Gift, Sparkles, Coins, Award, Clock, Check, Copy, X } from 'lucide-react'
 import { canOpenMysteryBox, openMysteryBox, MysteryBoxPrize, getGussoCoins, getUserBadges, Badge } from '@/lib/gamification'
 
+import Link from 'next/link'
+
 interface MysteryBoxModalProps {
   isOpen: boolean
   onClose: () => void
   onApplyCoupon?: (code: string) => void
+  user?: any
 }
 
-export function MysteryBoxModal({ isOpen, onClose, onApplyCoupon }: MysteryBoxModalProps) {
+export function MysteryBoxModal({ isOpen, onClose, onApplyCoupon, user }: MysteryBoxModalProps) {
   const [activeTab, setActiveTab] = useState<'box' | 'badges'>('box')
   const [isOpening, setIsOpening] = useState(false)
   const [prize, setPrize] = useState<MysteryBoxPrize | null>(null)
   const [cooldown, setCooldown] = useState({ canOpen: true, remainingHours: 0, remainingMinutes: 0 })
-  const [coins, setCoins] = useState(150)
+  const [coins, setCoins] = useState(0)
   const [badges, setBadges] = useState<Badge[]>([])
   const [copiedCode, setCopiedCode] = useState(false)
 
   const refreshState = () => {
     setCooldown(canOpenMysteryBox())
-    setCoins(getGussoCoins())
+    setCoins(user ? getGussoCoins(user.id) : 0)
     setBadges(getUserBadges())
   }
 
@@ -31,9 +34,24 @@ export function MysteryBoxModal({ isOpen, onClose, onApplyCoupon }: MysteryBoxMo
       setPrize(null)
       setCopiedCode(false)
     }
-  }, [isOpen])
+  }, [isOpen, user])
+
+  // ปิดด้วยปุ่ม Escape เสมอ ป้องกันการค้าง
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
 
   const handleOpenBox = () => {
+    if (!user) {
+      alert('กรุณาเข้าสู่ระบบก่อนเปิดกล่องสุ่มครับ')
+      return
+    }
     if (!cooldown.canOpen || isOpening) return
     setIsOpening(true)
     setPrize(null)
@@ -59,8 +77,14 @@ export function MysteryBoxModal({ isOpen, onClose, onApplyCoupon }: MysteryBoxMo
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg bg-slate-900 border border-amber-500/40 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-white">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 cursor-pointer"
+    >
+      <div 
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-lg bg-slate-900 border border-amber-500/40 rounded-3xl shadow-2xl overflow-hidden flex flex-col text-white cursor-default"
+      >
         {/* หัวโมดัลพร้อมสลับแท็บ */}
         <div className="p-5 bg-gradient-to-r from-amber-950 via-slate-900 to-indigo-950 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -168,7 +192,20 @@ export function MysteryBoxModal({ isOpen, onClose, onApplyCoupon }: MysteryBoxMo
               {/* ปุ่มกดเปิดกล่องสุ่ม */}
               {!prize && (
                 <div>
-                  {cooldown.canOpen ? (
+                  {!user ? (
+                    <div className="space-y-3">
+                      <p className="text-xs text-amber-300 font-semibold">
+                        🔒 กรุณาเข้าสู่ระบบเพื่อเปิดกล่องสุ่มและสะสมเหรียญรางวัล
+                      </p>
+                      <Link
+                        href="/login"
+                        onClick={onClose}
+                        className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-slate-950 font-black px-8 py-3 rounded-2xl text-xs transition shadow-lg shadow-amber-500/20 cursor-pointer"
+                      >
+                        เข้าสู่ระบบเพื่อเปิดกล่องสุ่ม
+                      </Link>
+                    </div>
+                  ) : cooldown.canOpen ? (
                     <button
                       onClick={handleOpenBox}
                       disabled={isOpening}

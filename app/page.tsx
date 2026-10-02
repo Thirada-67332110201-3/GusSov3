@@ -138,6 +138,7 @@ export default function Home() {
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       setUser(session.user)
+      setUserCoins(getGussoCoins(session.user.id))
       setCheckoutEmail(session.user.email || '')
 
       if (session.user.email === 'admin@gusso.com') {
@@ -166,6 +167,10 @@ export default function Home() {
           // ignore
         }
       }
+    } else {
+      setUser(null)
+      setUserCoins(0)
+      setShowMysteryBox(false)
     }
   }, [supabase])
 
@@ -465,6 +470,8 @@ export default function Home() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     setUser(null)
+    setUserCoins(0)
+    setShowMysteryBox(false)
     router.refresh()
   }
 
@@ -707,18 +714,6 @@ export default function Home() {
           
           <div className="flex items-center gap-2 sm:gap-3">
             <button
-              onClick={() => setShowMysteryBox(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-xl transition border border-amber-200 shadow-xs cursor-pointer group"
-              title="เปิดกล่องสุ่มรายวัน & ดูเหรียญตราความสำเร็จ"
-            >
-              <Gift className="w-4 h-4 text-amber-600 group-hover:scale-110 transition" />
-              <span className="hidden sm:inline">กล่องสุ่ม</span>
-              <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-1.5 py-0.5 rounded-full">
-                🪙 {userCoins}
-              </span>
-            </button>
-
-            <button
               onClick={() => { setIsCartOpen(true); setStep('cart'); }}
               className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition flex items-center gap-2 shadow-sm cursor-pointer"
             >
@@ -727,6 +722,18 @@ export default function Home() {
 
             {user ? (
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowMysteryBox(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-xl transition border border-amber-200 shadow-xs cursor-pointer group"
+                  title="เปิดกล่องสุ่มรายวัน & ดูเหรียญตราความสำเร็จ"
+                >
+                  <Gift className="w-4 h-4 text-amber-600 group-hover:scale-110 transition" />
+                  <span className="hidden sm:inline">กล่องสุ่ม</span>
+                  <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                    🪙 {userCoins}
+                  </span>
+                </button>
+
                 <Link
                   href="/orders"
                   className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
@@ -1610,6 +1617,7 @@ export default function Home() {
         isOpen={showMysteryBox}
         onClose={() => setShowMysteryBox(false)}
         onApplyCoupon={(c) => alert('คัดลอกโค้ดส่วนลดแล้ว: ' + c)}
+        user={user}
       />
 
       {/* AI Book Advisor Floating Chatbot */}

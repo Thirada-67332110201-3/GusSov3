@@ -87,22 +87,24 @@ const STORAGE_KEYS = {
 
 // ----------------- COINS MANAGEMENT -----------------
 
-export function getGussoCoins(): number {
-  if (typeof window === 'undefined') return 150
-  const saved = localStorage.getItem(STORAGE_KEYS.COINS)
+export function getGussoCoins(userId?: string): number {
+  if (typeof window === 'undefined') return 0
+  const key = userId ? `${STORAGE_KEYS.COINS}_${userId}` : STORAGE_KEYS.COINS
+  const saved = localStorage.getItem(key)
   if (saved === null) {
     // โบนัสต้อนรับสมาชิกใหม่ 150 เหรียญ
-    localStorage.setItem(STORAGE_KEYS.COINS, '150')
+    localStorage.setItem(key, '150')
     return 150
   }
   return parseInt(saved, 10) || 0
 }
 
-export function addGussoCoins(amount: number, description: string): number {
+export function addGussoCoins(amount: number, description: string, userId?: string): number {
   if (typeof window === 'undefined') return 0
-  const current = getGussoCoins()
+  const key = userId ? `${STORAGE_KEYS.COINS}_${userId}` : STORAGE_KEYS.COINS
+  const current = getGussoCoins(userId)
   const updated = current + amount
-  localStorage.setItem(STORAGE_KEYS.COINS, updated.toString())
+  localStorage.setItem(key, updated.toString())
 
   // บันทึกประวัติ
   const history = getCoinHistory()
