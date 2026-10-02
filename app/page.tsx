@@ -690,6 +690,11 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-50 pb-20">
+      {/* ปุ่มสลับโหมดมืด/สว่าง ลอยอยู่มุมซ้ายบนแบบ Floating เพื่อให้ Navbar สะอาดตา ไม่รก */}
+      <div className="fixed top-20 left-4 sm:left-6 z-40 animate-fadeIn">
+        <ThemeToggleCyberpunk floating />
+      </div>
+
       {/* Header */}
       <header className="bg-white/95 backdrop-blur-md shadow-sm sticky top-0 z-20 px-6 py-4 border-b border-gray-100">
         <div className="max-w-7xl mx-auto flex justify-between items-center gap-4">
@@ -712,8 +717,6 @@ export default function Home() {
                 🪙 {userCoins}
               </span>
             </button>
-
-            <ThemeToggleCyberpunk />
 
             <button
               onClick={() => { setIsCartOpen(true); setStep('cart'); }}
@@ -854,7 +857,7 @@ export default function Home() {
                   </span>
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-full">
                     <Shield className="w-3 h-3 text-emerald-400" />
-                    การันตีราคาเป็นธรรม (ห้ามราคา 0 บาท หรือติดลบ)
+                    การันตีราคาพิเศษ คุ้มค่าทุกเล่ม
                   </span>
                 </div>
 

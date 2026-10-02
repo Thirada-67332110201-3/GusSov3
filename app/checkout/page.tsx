@@ -74,6 +74,33 @@ function CheckoutContent() {
     return `${m}:${s}`
   }
 
+  // ฟังก์ชันสลับกลับไปยังแท็บเดิมของเว็บไซต์หลัก (Smooth Multi-tab Experience)
+  const handleReturnToMainTab = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault()
+    if (typeof window !== 'undefined') {
+      // 1. หากเปิดมาจากแท็บเดิมของหน้าร้าน ให้โฟกัสกลับไปยังแท็บเดิมและปิดแท็บชำระเงินนี้
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.focus()
+          window.close()
+          return
+        } catch (err) {
+          console.warn('Could not focus opener:', err)
+        }
+      }
+      
+      // 2. พยายามปิดแท็บชำระเงิน เพื่อให้ผู้ใช้กลับไปสู่แท็บเดิมที่เปิดค้างอยู่
+      try {
+        window.close()
+      } catch (err) {
+        // ignore
+      }
+
+      // 3. Fallback หากเบราว์เซอร์ไม่อนุญาตให้สั่งปิดแท็บผ่าน JavaScript
+      router.push('/')
+    }
+  }
+
   // 1. Initial Load: Check auth, query parameters (existing order) or localStorage cart
   const initializeCheckout = useCallback(async () => {
     setLoading(true)
@@ -448,13 +475,14 @@ function CheckoutContent() {
               <span>ไปยังคลังหนังสือ & ดาวน์โหลด E-Book</span>
             </Link>
 
-            <Link
-              href="/"
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-2xl font-semibold text-xs transition flex items-center justify-center gap-1.5"
+            <button
+              type="button"
+              onClick={handleReturnToMainTab}
+              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-2xl font-semibold text-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>กลับสู่หน้าร้านค้า GusSo E-Book</span>
-            </Link>
+              <span>กลับสู่แท็บเดิมหน้าร้านค้า GusSo E-Book</span>
+            </button>
           </div>
         </div>
       </div>
@@ -473,13 +501,14 @@ function CheckoutContent() {
           <p className="text-xs text-slate-500">
             โปรดเลือกหนังสือ E-Book ที่คุณสนใจจากหน้าร้านค้าลงตะกร้าก่อนดำเนินการชำระเงิน
           </p>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold hover:bg-indigo-700 transition shadow-sm"
+          <button
+            type="button"
+            onClick={handleReturnToMainTab}
+            className="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold hover:bg-indigo-700 transition shadow-sm cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>เลือกดูหนังสือหน้าร้าน</span>
-          </Link>
+            <span>กลับสู่แท็บเดิมหน้าร้าน</span>
+          </button>
         </div>
       </div>
     )
@@ -490,28 +519,36 @@ function CheckoutContent() {
       {/* Checkout Navbar */}
       <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-20 px-6 py-4">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="text-2xl">📚</span>
+          <button
+            type="button"
+            onClick={handleReturnToMainTab}
+            className="flex items-center gap-2 text-left cursor-pointer group"
+            title="คลิกเพื่อกลับไปยังแท็บเดิมหน้าร้าน"
+          >
+            <span className="text-2xl group-hover:scale-110 transition">📚</span>
             <div>
               <span className="text-lg font-black bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
                 GusSo E-Book Store
               </span>
               <span className="hidden sm:inline-block ml-2 text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md font-bold border border-indigo-100">
-                Secure Checkout Tab
+                แท็บชำระเงิน (คลิกเพื่อกลับแท็บเดิม)
               </span>
             </div>
-          </Link>
+          </button>
 
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
             <ThemeToggleCyberpunk />
             <ShieldCheck className="w-4 h-4 text-emerald-600 hidden sm:inline" />
             <span className="hidden md:inline">ระบบชำระเงินปลอดภัยมาตรฐาน 256-bit SSL</span>
-            <Link
-              href="/"
-              className="ml-2 text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-bold text-xs"
+            <button
+              type="button"
+              onClick={handleReturnToMainTab}
+              className="ml-2 text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-bold text-xs cursor-pointer hover:underline"
+              title="สลับกลับไปยังแท็บเดิมหน้าร้าน"
             >
-              <span>← กลับหน้าร้าน</span>
-            </Link>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>กลับแท็บเดิมหน้าร้าน</span>
+            </button>
           </div>
         </div>
       </header>
