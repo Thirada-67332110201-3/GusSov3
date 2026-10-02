@@ -472,18 +472,18 @@ export default function AuthorPage() {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-8">
         {/* Banner แจ้งโมเดลส่วนแบ่งรายได้ 60/40 */}
-        <div className="bg-linear-to-r from-purple-900 via-indigo-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+        <div className="bg-slate-950 bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-purple-500/30 relative overflow-hidden">
           <div className="absolute -right-10 -bottom-10 w-60 h-60 bg-purple-500/20 rounded-full blur-3xl pointer-events-none"></div>
           <div className="relative z-10 max-w-2xl space-y-3">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/30 text-purple-200 border border-purple-400/30">
-              <Percent className="w-3.5 h-3.5" />
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold bg-purple-500/25 text-purple-200 border border-purple-400/40 shadow-xs">
+              <Percent className="w-3.5 h-3.5 text-purple-300" />
               ข้อตกลงส่วนแบ่งรายได้ (Revenue Sharing Model)
             </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-xs">
               สร้างผลงานของคุณ รับส่วนแบ่งรายได้ 60% ทุกเล่ม
             </h2>
-            <p className="text-slate-300 text-sm leading-relaxed">
-              เมื่อส่งหนังสือใหม่ ทีมงานแอดมินจะทำการตรวจสอบความถูกต้องและความเหมาะสมของเนื้อหา เมื่อผ่านการอนุมัติ (Approved) หนังสือจะวางจำหน่ายทันที โดยผู้แต่งได้รับ <strong>60%</strong> ของยอดจำหน่าย และระบบหักค่าพื้นที่/ดำเนินการ <strong>40%</strong>
+            <p className="text-purple-100/90 text-sm leading-relaxed">
+              เมื่อส่งหนังสือใหม่ ทีมงานแอดมินจะทำการตรวจสอบความถูกต้องและความเหมาะสมของเนื้อหา เมื่อผ่านการอนุมัติ (Approved) หนังสือจะวางจำหน่ายทันที โดยผู้แต่งได้รับ <strong className="text-amber-300 font-bold underline decoration-amber-400/60 decoration-2 underline-offset-2">60%</strong> ของยอดจำหน่าย และระบบหักค่าพื้นที่/ดำเนินการ <strong className="text-white font-bold">40%</strong>
             </p>
           </div>
         </div>
