@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, User, Lock, Eye, EyeOff, Save, CheckCircle, Shield } from 'lucide-react'
+import { ArrowLeft, User, Lock, Eye, EyeOff, Save, CheckCircle, Shield, Award, Coins, Sparkles, Gift } from 'lucide-react'
+import { getGussoCoins, getUserBadges, getCoinHistory, Badge, GussoCoinTransaction } from '@/lib/gamification'
+import { ThemeToggleCyberpunk } from '@/components/theme-toggle-cyberpunk'
 
 export default function ProfilePage() {
   const supabase = createClient()
@@ -25,6 +27,11 @@ export default function ProfilePage() {
 
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
+
+  // Gamification state
+  const [userCoins, setUserCoins] = useState(150)
+  const [badges, setBadges] = useState<Badge[]>([])
+  const [coinHistory, setCoinHistory] = useState<GussoCoinTransaction[]>([])
 
   const fetchUserProfile = useCallback(async () => {
     setLoading(true)
@@ -73,6 +80,11 @@ export default function ProfilePage() {
       }
     }
     setRoleId(currentRoleId)
+
+    // โหลดข้อมูลเหรียญและเหรียญตรา
+    setUserCoins(getGussoCoins())
+    setBadges(getUserBadges())
+    setCoinHistory(getCoinHistory())
 
     setLoading(false)
   }, [supabase])
@@ -206,23 +218,88 @@ export default function ProfilePage() {
               แก้ไขข้อมูลพื้นฐานของสมาชิก
             </h1>
           </div>
-          <span className={`text-xs px-3 py-1 rounded-full font-semibold border ${
-            roleId === 1 || email === 'admin@gusso.com'
-              ? 'bg-amber-50 text-amber-800 border-amber-200'
-              : roleId === 3
-              ? 'bg-purple-50 text-purple-800 border-purple-200'
-              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-          }`}>
-            {roleId === 1 || email === 'admin@gusso.com'
-              ? '🛡️ ผู้ดูแลระบบ (Admin)'
-              : roleId === 3
-              ? '✍️ นักเขียน / ผู้แต่ง (Author)'
-              : '👤 สมาชิกทั่วไป (Customer)'}
-          </span>
+          <div className="flex items-center gap-2">
+            <ThemeToggleCyberpunk />
+            <span className={`text-xs px-3 py-1 rounded-full font-semibold border ${
+              roleId === 1 || email === 'admin@gusso.com'
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : roleId === 3
+                ? 'bg-purple-50 text-purple-800 border-purple-200'
+                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            }`}>
+              {roleId === 1 || email === 'admin@gusso.com'
+                ? '🛡️ ผู้ดูแลระบบ (Admin)'
+                : roleId === 3
+                ? '✍️ นักเขียน / ผู้แต่ง (Author)'
+                : '👤 สมาชิกทั่วไป (Customer)'}
+            </span>
+          </div>
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
+        {/* การ์ดสรุปแต้ม GusSo Coins & เหรียญตราความสำเร็จ (Gamification Showcase) */}
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-indigo-500/20 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-2xl">
+                🪙
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-amber-300">กระเป๋าเหรียญสะสม (GusSo Wallet)</h2>
+                <p className="text-xs text-slate-300">แต้มสะสมจากคำสั่งซื้อและกล่องสุ่มรายวัน ใช้แลกส่วนลดได้ 10 Coins = 1 บาท</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <span className="text-2xl sm:text-3xl font-black text-amber-400">{userCoins.toLocaleString()}</span>
+                <span className="text-xs text-slate-400 block font-normal">Coins คงเหลือ</span>
+              </div>
+              <Link
+                href="/"
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black px-4 py-2.5 rounded-xl transition shadow-md cursor-pointer shrink-0"
+              >
+                + ช้อปหนังสือสะสมเพิ่ม
+              </Link>
+            </div>
+          </div>
+
+          {/* ตู้โชว์เหรียญตรา (Badges Showcase) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-purple-200 flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-purple-400" />
+                <span>เหรียญตราความสำเร็จของฉัน ({badges.filter(b => b.isUnlocked).length}/{badges.length})</span>
+              </h3>
+              <span className="text-[11px] text-slate-400">ปลดล็อกเพื่อรับ GusSo Coins เพิ่ม</span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {badges.map(b => (
+                <div
+                  key={b.id}
+                  className={`p-3 rounded-2xl border flex items-center gap-3 transition ${
+                    b.isUnlocked
+                      ? 'bg-purple-950/40 border-purple-500/40 shadow-sm'
+                      : 'bg-slate-950/30 border-white/5 opacity-40'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 ${
+                    b.isUnlocked ? 'bg-purple-500/20 border border-purple-400/40' : 'bg-slate-800'
+                  }`}>
+                    {b.icon}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-xs text-white truncate">{b.title}</p>
+                    <p className="text-[10px] text-slate-400 truncate mt-0.5">{b.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           
           {/* ข้อมูลพื้นฐาน & แก้ไขชื่อ */}

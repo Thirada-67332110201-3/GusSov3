@@ -9,9 +9,11 @@ import {
   ArrowLeft, CheckCircle2, ShieldCheck, QrCode, CreditCard, 
   Building2, Smartphone, Clock, Flame, ShoppingBag, 
   Download, Copy, Check, Upload, AlertCircle, ArrowRight,
-  Sparkles, BookOpen
+  Sparkles, BookOpen, Coins
 } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA } from '@/lib/books-data'
+import { getGussoCoins, spendGussoCoins, addGussoCoins, unlockBadge } from '@/lib/gamification'
+import { ThemeToggleCyberpunk } from '@/components/theme-toggle-cyberpunk'
 
 export interface CheckoutCartItem {
   ebook_id: number
@@ -51,6 +53,10 @@ function CheckoutContent() {
   // Slip upload preview state
   const [slipPreview, setSlipPreview] = useState<string | null>(null)
   const [copiedBank, setCopiedBank] = useState(false)
+
+  // GusSo Coins Gamification state
+  const [userCoins, setUserCoins] = useState(150)
+  const [useCoinsDiscount, setUseCoinsDiscount] = useState(false)
 
   // Countdown timer for QR code (15 minutes = 900 seconds)
   const [timeLeft, setTimeLeft] = useState(900)
@@ -143,6 +149,7 @@ function CheckoutContent() {
       console.warn('Error reading localStorage cart:', e)
     }
 
+    setUserCoins(getGussoCoins())
     setLoading(false)
   }, [supabase, orderIdParam])
 
@@ -151,12 +158,18 @@ function CheckoutContent() {
   }, [initializeCheckout])
 
   // Calculations
-  const totalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+  const rawTotalPrice = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const totalSavings = cart.reduce((sum, item) => {
     const orig = item.original_price || item.price
     const diff = Math.max(0, orig - item.price)
     return sum + (diff * item.quantity)
   }, 0)
+
+  // GusSo Coins Discount (10 Coins = 1 บาท, ใช้ลดได้สูงสุด 50% ของยอดรวม)
+  const maxCoinDiscountBaht = Math.min(Math.floor(userCoins / 10), Math.floor(rawTotalPrice * 0.5))
+  const coinsToSpend = useCoinsDiscount ? maxCoinDiscountBaht * 10 : 0
+  const coinDiscountBaht = useCoinsDiscount ? maxCoinDiscountBaht : 0
+  const totalPrice = Math.max(0, rawTotalPrice - coinDiscountBaht)
 
   // Handle Slip Upload preview
   const handleSlipChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -307,7 +320,23 @@ function CheckoutContent() {
         console.warn('EmailJS delivery warning:', mailErr)
       }
 
-      // 5. Clear cart and set success step
+      // 5. จัดการ GusSo Coins และเหรียญตราความสำเร็จ (Gamification)
+      if (coinsToSpend > 0) {
+        spendGussoCoins(coinsToSpend, `ใช้แลกส่วนลดคำสั่งซื้อ #${finalOrderId}`)
+      }
+      const earnedCoins = Math.round(totalPrice * 0.1)
+      if (earnedCoins > 0) {
+        addGussoCoins(earnedCoins, `เงินคืน 10% จากคำสั่งซื้อ #${finalOrderId}`)
+      }
+      unlockBadge('first_purchase')
+      if (cart.length >= 3) {
+        unlockBadge('book_collector')
+      }
+      if (cart.some(it => it.ebook_id === 1 || it.ebook_id === 4)) {
+        unlockBadge('code_enthusiast')
+      }
+
+      // 6. Clear cart and set success step
       localStorage.removeItem('gusso_cart')
       setCompletedOrderNumber(finalOrderId)
       setCheckoutStep(2)
@@ -474,11 +503,12 @@ function CheckoutContent() {
           </Link>
 
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span className="hidden sm:inline">ระบบชำระเงินปลอดภัยมาตรฐาน 256-bit SSL</span>
+            <ThemeToggleCyberpunk />
+            <ShieldCheck className="w-4 h-4 text-emerald-600 hidden sm:inline" />
+            <span className="hidden md:inline">ระบบชำระเงินปลอดภัยมาตรฐาน 256-bit SSL</span>
             <Link
               href="/"
-              className="ml-3 text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-bold text-xs"
+              className="ml-2 text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-bold text-xs"
             >
               <span>← กลับหน้าร้าน</span>
             </Link>
@@ -873,11 +903,36 @@ function CheckoutContent() {
               })}
             </div>
 
+            {/* กล่องเลือกใช้แต้ม GusSo Coins */}
+            <div className="bg-amber-50/70 border border-amber-200 p-3.5 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={useCoinsDiscount}
+                    disabled={userCoins < 10}
+                    onChange={(e) => setUseCoinsDiscount(e.target.checked)}
+                    className="w-4 h-4 text-amber-600 rounded cursor-pointer"
+                  />
+                  <span className="flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-amber-500" />
+                    <span>ใช้ GusSo Coins แลกส่วนลด</span>
+                  </span>
+                </label>
+                <span className="text-xs font-extrabold text-amber-700">
+                  🪙 {userCoins} Coins
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                (อัตรา 10 Coins = 1 บาท • สิทธิ์ลดได้สูงสุด ฿{maxCoinDiscountBaht.toFixed(2)} บาท)
+              </p>
+            </div>
+
             {/* Pricing Summary */}
             <div className="border-t border-slate-100 pt-3 space-y-2 text-xs">
               <div className="flex justify-between text-slate-500">
                 <span>ราคาปกติรวม:</span>
-                <span>฿{(totalPrice + totalSavings).toFixed(2)}</span>
+                <span>฿{(rawTotalPrice + totalSavings).toFixed(2)}</span>
               </div>
 
               {totalSavings > 0 && (
@@ -887,6 +942,16 @@ function CheckoutContent() {
                     <span>ส่วนลดประจำสัปดาห์:</span>
                   </span>
                   <span>-฿{totalSavings.toFixed(2)}</span>
+                </div>
+              )}
+
+              {useCoinsDiscount && coinDiscountBaht > 0 && (
+                <div className="flex justify-between text-amber-700 font-bold bg-amber-50 p-2 rounded-xl border border-amber-200">
+                  <span className="flex items-center gap-1">
+                    <span>🪙</span>
+                    <span>ส่วนลด GusSo Coins ({coinsToSpend} แต้ม):</span>
+                  </span>
+                  <span>-฿{coinDiscountBaht.toFixed(2)}</span>
                 </div>
               )}
 

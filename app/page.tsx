@@ -5,9 +5,16 @@ import { createClient } from '@/lib/supabase/client'
 import emailjs from '@emailjs/browser'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare, Clock, Flame, Sparkles, Tag, CreditCard, ArrowRight, QrCode } from 'lucide-react'
+import { Search, ShoppingBag, User, Shield, LogOut, CheckCircle, BookOpen, Star, MessageSquare, Clock, Flame, Sparkles, Tag, CreditCard, ArrowRight, QrCode, Gift, Award, Coins, Eye, LayoutGrid } from 'lucide-react'
 import { UNIQUE_EBOOKS_METADATA, BookReview } from '@/lib/books-data'
 import { getWeeklyPeriodInfo, getBookPromotionPricing, WeeklyPromotionCampaign } from '@/lib/promotions'
+import { getGussoCoins, spendGussoCoins, unlockBadge } from '@/lib/gamification'
+import { Bookshelf3D } from '@/components/bookshelf-3d'
+import { InteractivePageFlipReader } from '@/components/interactive-page-flip-reader'
+import { MysteryBoxModal } from '@/components/mystery-box-modal'
+import { AiBookAdvisor } from '@/components/ai-book-advisor'
+import { AiBookSummarizerModal } from '@/components/ai-book-summarizer-modal'
+import { ThemeToggleCyberpunk } from '@/components/theme-toggle-cyberpunk'
 
 type Ebook = {
   ebook_id: number
@@ -102,6 +109,29 @@ export default function Home() {
     seconds: 0
   })
   const [promoFilterOnly, setPromoFilterOnly] = useState<boolean>(false)
+
+  // สลับมุมมอง: 'grid' (ตารางปกติ) vs 'bookshelf' (ชั้นไม้ 3D)
+  const [viewMode, setViewMode] = useState<'grid' | 'bookshelf'>('grid')
+
+  // สถานะ Gamification & กล่องสุ่ม
+  const [userCoins, setUserCoins] = useState<number>(150)
+  const [showMysteryBox, setShowMysteryBox] = useState<boolean>(false)
+  const [useCoinsInCart, setUseCoinsInCart] = useState<boolean>(false)
+
+  // สถานะ Modal สำหรับอ่าน 3D และสรุป AI
+  const [readerBook, setReaderBook] = useState<any | null>(null)
+  const [summaryBook, setSummaryBook] = useState<any | null>(null)
+
+  useEffect(() => {
+    setUserCoins(getGussoCoins())
+    const handleCoinsUpdate = (e: any) => {
+      if (e.detail?.coins !== undefined) {
+        setUserCoins(e.detail.coins)
+      }
+    }
+    window.addEventListener('gusso_coins_updated', handleCoinsUpdate)
+    return () => window.removeEventListener('gusso_coins_updated', handleCoinsUpdate)
+  }, [])
 
   const fetchSession = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession()
@@ -647,7 +677,21 @@ export default function Home() {
             </span>
           </Link>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setShowMysteryBox(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-xl transition border border-amber-200 shadow-xs cursor-pointer group"
+              title="เปิดกล่องสุ่มรายวัน & ดูเหรียญตราความสำเร็จ"
+            >
+              <Gift className="w-4 h-4 text-amber-600 group-hover:scale-110 transition" />
+              <span className="hidden sm:inline">กล่องสุ่ม</span>
+              <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                🪙 {userCoins}
+              </span>
+            </button>
+
+            <ThemeToggleCyberpunk />
+
             <Link
               href="/checkout"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition border border-emerald-200 shadow-xs"
@@ -886,44 +930,72 @@ export default function Home() {
           </div>
         )}
 
-        {/* แถบปุ่มเลือกหมวดหมู่หนังสือ */}
-        <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
-          <button
-            onClick={() => { setSelectedCategory(null); setPromoFilterOnly(false); }}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap shadow-sm cursor-pointer ${
-              selectedCategory === null && !promoFilterOnly 
-                ? 'bg-indigo-600 text-white shadow-indigo-200' 
-                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
-            }`}
-          >
-            🌟 ทั้งหมด ({ebooks.length})
-          </button>
-          {categories.map((cat) => (
+        {/* แถบปุ่มเลือกหมวดหมู่หนังสือ และปุ่มสลับมุมมองชั้นหนังสือ 3D */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <button
-              key={cat.category_id}
-              onClick={() => { setSelectedCategory(cat.category_id); setPromoFilterOnly(false); }}
+              onClick={() => { setSelectedCategory(null); setPromoFilterOnly(false); }}
               className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap shadow-sm cursor-pointer ${
-                selectedCategory === cat.category_id 
+                selectedCategory === null && !promoFilterOnly 
                   ? 'bg-indigo-600 text-white shadow-indigo-200' 
                   : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
               }`}
             >
-              {cat.category_name}
+              🌟 ทั้งหมด ({ebooks.length})
             </button>
-          ))}
-          {isPromotionActive && (
+            {categories.map((cat) => (
+              <button
+                key={cat.category_id}
+                onClick={() => { setSelectedCategory(cat.category_id); setPromoFilterOnly(false); }}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition whitespace-nowrap shadow-sm cursor-pointer ${
+                  selectedCategory === cat.category_id 
+                    ? 'bg-indigo-600 text-white shadow-indigo-200' 
+                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                {cat.category_name}
+              </button>
+            ))}
+            {isPromotionActive && (
+              <button
+                onClick={() => { setPromoFilterOnly(prev => !prev); setSelectedCategory(null); }}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap shadow-sm cursor-pointer flex items-center gap-1.5 ${
+                  promoFilterOnly
+                    ? 'bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-red-200'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                ดีลประจำสัปดาห์ (ลดราคา)
+              </button>
+            )}
+          </div>
+
+          {/* สลับมุมมอง: Grid View vs 3D Bookshelf */}
+          <div className="flex items-center bg-white p-1 rounded-2xl border border-gray-200 shadow-xs shrink-0 self-end sm:self-auto">
             <button
-              onClick={() => { setPromoFilterOnly(prev => !prev); setSelectedCategory(null); }}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition whitespace-nowrap shadow-sm cursor-pointer flex items-center gap-1.5 ${
-                promoFilterOnly
-                  ? 'bg-gradient-to-r from-red-600 to-amber-600 text-white shadow-red-200'
-                  : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+              onClick={() => setViewMode('grid')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                viewMode === 'grid'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-gray-500 hover:text-gray-800'
               }`}
             >
-              <Flame className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-              ดีลประจำสัปดาห์ (ลดราคา)
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>ตารางการ์ด</span>
             </button>
-          )}
+            <button
+              onClick={() => setViewMode('bookshelf')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                viewMode === 'bookshelf'
+                  ? 'bg-gradient-to-r from-amber-700 to-amber-900 text-amber-100 shadow-xs'
+                  : 'text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              <span>🪵</span>
+              <span>ชั้นไม้ 3D</span>
+            </button>
+          </div>
         </div>
 
         {/* รายการหนังสือ */}
@@ -944,10 +1016,29 @@ export default function Home() {
               แสดงหนังสือทั้งหมด
             </button>
           </div>
+        ) : viewMode === 'bookshelf' ? (
+          <Bookshelf3D
+            books={filteredEbooks.map(b => ({
+              ebook_id: b.ebook_id,
+              title: b.title,
+              author: b.author,
+              author_id: UNIQUE_EBOOKS_METADATA[b.ebook_id]?.author_id || 1,
+              price: getBookPromotionPricing(b, weeklyInfo.activeCampaign, isPromotionActive).finalPrice,
+              description: b.description,
+              cover_image: b.cover_image,
+              rating: b.rating,
+              total_reviews: b.total_reviews,
+              category_id: b.category_id
+            }))}
+            onAddToCart={(b) => addToCart({ ...b, stock_status: 'พร้อมจำหน่าย', category_id: b.category_id || 1 })}
+            onOpenReader={(b) => setReaderBook(b)}
+            onOpenAiSummary={(b) => setSummaryBook(b)}
+          />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredEbooks.map((book) => {
               const promoPricing = getBookPromotionPricing(book, weeklyInfo.activeCampaign, isPromotionActive)
+              const authorId = UNIQUE_EBOOKS_METADATA[book.ebook_id]?.author_id || 1
               return (
               <div
                 key={book.ebook_id}
@@ -984,10 +1075,16 @@ export default function Home() {
                   </div>
 
                   <div className="p-5">
-                    {/* แสดงชื่อผู้แต่ง (ตามข้อกำหนด 2.1) */}
-                    <p className="text-xs text-indigo-600 font-semibold mb-1 flex items-center gap-1">
-                      <span>✍️</span> {book.author || 'ทีมวิชาการ GusSo'}
-                    </p>
+                    {/* แสดงชื่อผู้แต่ง พร้อมลิงก์ไปหน้าโปรไฟล์และเลี้ยงกาแฟ */}
+                    <Link
+                      href={`/author/${authorId}`}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold mb-1 inline-flex items-center gap-1 group/author"
+                      title="ดูโปรไฟล์นักเขียน & เลี้ยงกาแฟ"
+                    >
+                      <span>✍️</span>
+                      <span className="group-hover/author:underline">{book.author || 'ทีมวิชาการ GusSo'}</span>
+                      <span className="text-[10px] text-amber-500 font-normal">☕</span>
+                    </Link>
 
                     <h2 className="text-base font-bold text-gray-900 group-hover:text-indigo-600 transition-colors line-clamp-1 mb-2">
                       {book.title}
@@ -1028,6 +1125,28 @@ export default function Home() {
                       >
                         <MessageSquare className="w-3 h-3" />
                         <span>รีวิว/ให้ดาว</span>
+                      </button>
+                    </div>
+
+                    {/* ปุ่มอ่านตัวอย่าง 3D และปุ่มสรุป AI */}
+                    <div className="grid grid-cols-2 gap-1.5 pt-2.5 border-t border-gray-100 mt-2.5">
+                      <button
+                        type="button"
+                        onClick={() => setReaderBook(book)}
+                        className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-1.5 px-2 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                        title="เปิดอ่านตัวอย่างแบบพลิกหน้ากระดาษ 3D"
+                      >
+                        <BookOpen className="w-3 h-3" />
+                        <span>อ่าน 3D</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSummaryBook(book)}
+                        className="bg-purple-50 hover:bg-purple-100 text-purple-700 py-1.5 px-2 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                        title="ให้ AI ช่วยสรุปใจความสำคัญใน 3 มิติ"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-500" />
+                        <span>สรุป AI</span>
                       </button>
                     </div>
                   </div>
@@ -1453,6 +1572,33 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* 3D Interactive Page Flip Reader Modal */}
+      <InteractivePageFlipReader
+        book={readerBook}
+        onClose={() => setReaderBook(null)}
+        onAddToCart={(b) => addToCart({ ...b, category_id: 1, stock_status: 'พร้อมจำหน่าย' })}
+      />
+
+      {/* Lucky Mystery Box & Gamification Modal */}
+      <MysteryBoxModal
+        isOpen={showMysteryBox}
+        onClose={() => setShowMysteryBox(false)}
+        onApplyCoupon={(c) => alert('คัดลอกโค้ดส่วนลดแล้ว: ' + c)}
+      />
+
+      {/* AI Book Advisor Floating Chatbot */}
+      <AiBookAdvisor
+        onAddToCart={(b) => addToCart({ ...b, category_id: 1, stock_status: 'พร้อมจำหน่าย' })}
+      />
+
+      {/* AI 3-Line Summarizer Modal */}
+      <AiBookSummarizerModal
+        book={summaryBook}
+        onClose={() => setSummaryBook(null)}
+        onAddToCart={(b) => addToCart({ ...b, category_id: 1, stock_status: 'พร้อมจำหน่าย' })}
+        onOpenReader={(b) => setReaderBook(b)}
+      />
     </main>
   )
 }
